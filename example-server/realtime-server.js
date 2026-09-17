@@ -1,41 +1,69 @@
 var express = require('express');
 
-function RealtimeServer(spacecraft) {
-
+function RealtimeServer(spacecraft, gateway) {
     var router = express.Router();
 
     router.ws('/', function (ws) {
-        var unlisten = spacecraft.listen(notifySubscribers);
         var subscribed = {}; // Active subscriptions for this connection
-        var handlers = { // Handlers for specific requests
-                subscribe: function (id) {
-                    subscribed[id] = true;
-                },
-                unsubscribe: function (id) {
-                    delete subscribed[id];
-                }
-            };
+        var unlistenSpacecraft = spacecraft ? spacecraft.listen(notifySpacecraft) : function () {};
+        var unlistenGateway = gateway ? gateway.subscribe(notifyGateway) : function () {};
 
-        function notifySubscribers(point) {
-            if (subscribed[point.id]) {
-                ws.send(JSON.stringify(point));
+        function notifySpacecraft(point) {
+            if (subscribed[point.id] || subscribed['*'] || subscribed['all']) {
+                if (ws.readyState === 1) {
+                    try { ws.send(JSON.stringify(point)); } catch (_) {}
+                }
+            }
+        }
+
+        function notifyGateway(point) {
+            if (subscribed[point.id] || subscribed['*'] || subscribed['all']) {
+                if (ws.readyState === 1) {
+                    try { ws.send(JSON.stringify(point)); } catch (_) {}
+                }
             }
         }
 
         // Listen for requests
         ws.on('message', function (message) {
-            var parts = message.split(' '),
-                handler = handlers[parts[0]];
-            if (handler) {
-                handler.apply(handlers, parts.slice(1));
+            try {
+                if (typeof message !== 'string') message = message.toString();
+
+                if (message.startsWith('{')) {
+                    var parsed = JSON.parse(message);
+                    if (parsed.action === 'subscribe') {
+                        subscribed[parsed.id] = true;
+                    } else if (parsed.action === 'unsubscribe') {
+                        delete subscribed[parsed.id];
+                    } else if (parsed.action === 'command' && gateway) {
+                        var result = gateway.executeCommand(parsed.command);
+                        if (ws.readyState === 1) {
+                            ws.send(JSON.stringify({ type: 'command_ack', result: result }));
+                        }
+                    }
+                } else {
+                    var parts = message.split(' ');
+                    var cmd = parts[0];
+                    var id = parts[1];
+                    if (cmd === 'subscribe') {
+                        subscribed[id] = true;
+                    } else if (cmd === 'unsubscribe') {
+                        delete subscribed[id];
+                    }
+                }
+            } catch (e) {
+                console.error('[Realtime WS] Message processing error:', e);
             }
         });
 
-        // Stop sending telemetry updates for this connection when closed
-        ws.on('close', unlisten);
+        // Cleanup on connection close
+        ws.on('close', function () {
+            unlistenSpacecraft();
+            unlistenGateway();
+        });
     });
 
     return router;
-};
+}
 
 module.exports = RealtimeServer;

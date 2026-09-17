@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orion Rover - Camera Stream Feed</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            border-radius: 0px !important;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif;
+            background-color: #121212;
+            color: #d4d4d4;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Header & HUD */
+        .camera-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #161616;
+            border-bottom: 1px solid #282828;
+            padding: 6px 12px;
+            height: 34px;
+            flex-shrink: 0;
+            z-index: 10;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .cam-dot {
+            width: 8px;
+            height: 8px;
+            background: #22c55e;
+            box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+        }
+
+        .cam-title {
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #f8fafc;
+            text-transform: uppercase;
+        }
+
+        .cam-badge {
+            background: #27272a;
+            border: 1px solid #3f3f46;
+            color: #a1a1aa;
+            font-size: 9px;
+            font-family: monospace;
+            padding: 1px 6px;
+            font-weight: 700;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .hud-telemetry {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: monospace;
+            font-size: 10px;
+            color: #94a3b8;
+        }
+
+        .btn-hud {
+            background: #1c1c1c;
+            border: 1px solid #333333;
+            color: #cbd5e1;
+            padding: 3px 8px;
+            font-size: 9px;
+            font-weight: 700;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.15s ease;
+        }
+
+        .btn-hud:hover {
+            background: #282828;
+            border-color: #4a4a4a;
+            color: #ffffff;
+        }
+
+        .btn-hud.btn-primary {
+            background: #1d4ed8;
+            border-color: #2563eb;
+            color: #ffffff;
+        }
+        .btn-hud.btn-primary:hover {
+            background: #2563eb;
+        }
+
+        /* Viewport Canvas Area */
+        .viewport-container {
+            position: relative;
+            flex: 1;
+            min-height: 0;
+            background: #0a0a0a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        canvas#camera-stream-canvas {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+        }
+
+        /* Overlays & Crosshairs */
+        .reticle-crosshair {
+            position: absolute;
+            width: 36px;
+            height: 36px;
+            border: 1px solid rgba(56, 189, 248, 0.4);
+            pointer-events: none;
+            display: block;
+        }
+
+        .reticle-crosshair::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: rgba(56, 189, 248, 0.4);
+        }
+
+        .reticle-crosshair::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 50%;
+            width: 1px;
+            height: 100%;
+            background: rgba(56, 189, 248, 0.4);
+        }
+
+        .osd-overlay {
+            position: absolute;
+            bottom: 12px;
+            left: 14px;
+            background: rgba(20, 20, 20, 0.85);
+            border: 1px solid #282828;
+            padding: 4px 8px;
+            font-family: monospace;
+            font-size: 10px;
+            color: #e2e8f0;
+            pointer-events: none;
+        }
+
+        .osd-status {
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            background: rgba(20, 20, 20, 0.85);
+            border: 1px solid #282828;
+            padding: 4px 8px;
+            font-family: monospace;
+            font-size: 9px;
+            color: #38bdf8;
+            pointer-events: none;
+        }
+
+        .snapshot-toast {
+            position: absolute;
+            top: 50px;
+            right: 14px;
+            background: #14532d;
+            border: 1px solid #166534;
+            color: #86efac;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 6px 12px;
+            z-index: 50;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header class="camera-header">
+        <div class="header-left">
+            <div id="cam-live-dot" class="cam-dot"></div>
+            <div id="cam-name-text" class="cam-title">MAST INTEL REALSENSE D435i</div>
+            <div id="cam-role-badge" class="cam-badge">PERCEPTION / SLAM</div>
+            <select id="cam-selector" class="btn-hud" style="font-family: sans-serif; cursor: pointer; padding: 2px 4px;">
+                <option value="1">CAM 1: MAST RGB</option>
+                <option value="2">CAM 2: FRONT DRIVE</option>
+                <option value="3">CAM 3: ARM GRIPPER</option>
+                <option value="4">CAM 4: SCIENCE</option>
+            </select>
+        </div>
+
+        <div class="header-right">
+            <div class="hud-telemetry">
+                <span id="hud-res">1920x1080</span>
+                <span>|</span>
+                <span id="hud-fps" style="color: #22c55e;">30 FPS</span>
+                <span>|</span>
+                <span id="hud-bitrate" style="color: #38bdf8;">12.4 Mbps</span>
+            </div>
+            <button id="btn-toggle-reticle" class="btn-hud">RETICLE</button>
+            <button id="btn-snapshot" class="btn-hud btn-primary">📸 SNAPSHOT</button>
+            <button id="btn-close" class="btn-hud" onclick="window.close()">✕ CLOSE</button>
+        </div>
+    </header>
+
+    <!-- Stream Viewport -->
+    <main class="viewport-container">
+        <canvas id="camera-stream-canvas"></canvas>
+        <div id="reticle" class="reticle-crosshair"></div>
+        <div id="osd-info" class="osd-overlay">
+            <span style="color: #71717a;">UTC:</span> <span id="osd-time">--</span> |
+            <span style="color: #71717a;">CODEC:</span> H.264 LOW-LATENCY
+        </div>
+        <div id="osd-status" class="osd-status">
+            DOWNLINK: NOMINAL (99.8% PKTS)
+        </div>
+        <div id="snapshot-toast" class="snapshot-toast">
+            ✓ SNAPSHOT LOGGED TO NOTEBOOK
+        </div>
+    </main>
+
+    <script>
+        const CAMERAS = [
+            { id: 1, key: 'mast', name: 'Mast Intel RealSense D435i', short: 'MAST RGB', resolution: '1920x1080', role: 'Perception / SLAM' },
+            { id: 2, key: 'front', name: 'Front Chassis Drive Camera', short: 'FRONT DRIVE', resolution: '1280x720', role: 'Mobility / Obstacle' },
+            { id: 3, key: 'arm', name: 'Manipulator Gripper Camera', short: 'ARM / GRIPPER', resolution: '1280x720', role: 'Inspection / Manipulation' },
+            { id: 4, key: 'science', name: 'Science Chamber Camera', short: 'SCIENCE CHAMBER', resolution: '1280x720', role: 'Sample Verification' }
+        ];
+
+        // Parse camera parameter from URL (?cam=1, ?cam=2, ?cam=mast, etc.)
+        const params = new URLSearchParams(window.location.search);
+        let camParam = params.get('cam') || '1';
+        let activeCam = CAMERAS.find(c => String(c.id) === camParam || c.key.toLowerCase() === camParam.toLowerCase()) || CAMERAS[0];
+
+        const canvas = document.getElementById('camera-stream-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 1280;
+        canvas.height = 720;
+
+        const titleEl = document.getElementById('cam-name-text');
+        const roleEl = document.getElementById('cam-role-badge');
+        const selectEl = document.getElementById('cam-selector');
+        const hudRes = document.getElementById('hud-res');
+        const hudFps = document.getElementById('hud-fps');
+        const hudBitrate = document.getElementById('hud-bitrate');
+        const osdTime = document.getElementById('osd-time');
+        const reticle = document.getElementById('reticle');
+        const btnReticle = document.getElementById('btn-toggle-reticle');
+        const btnSnapshot = document.getElementById('btn-snapshot');
+        const toast = document.getElementById('snapshot-toast');
+
+        function setCamera(cam) {
+            activeCam = cam;
+            document.title = `Orion Rover - ${cam.name} Feed`;
+            titleEl.textContent = cam.name.toUpperCase();
+            roleEl.textContent = cam.role.toUpperCase();
+            selectEl.value = String(cam.id);
+            hudRes.textContent = cam.resolution;
+        }
+
+        setCamera(activeCam);
+
+        selectEl.addEventListener('change', (e) => {
+            const chosen = CAMERAS.find(c => String(c.id) === e.target.value);
+            if (chosen) setCamera(chosen);
+        });
+
+        let showReticle = true;
+        btnReticle.addEventListener('click', () => {
+            showReticle = !showReticle;
+            reticle.style.display = showReticle ? 'block' : 'none';
+            btnReticle.style.borderColor = showReticle ? '#38bdf8' : '#333333';
+        });
+
+        btnSnapshot.addEventListener('click', () => {
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 2000);
+        });
+
+        // Animation / Feed generation loop
+        function drawFrame() {
+            const now = Date.now();
+            osdTime.textContent = new Date(now).toISOString();
+
+            // Background terrain & sky
+            ctx.fillStyle = '#1e1b18';
+            ctx.fillRect(0, 0, 1280, 720);
+
+            const groundGrad = ctx.createLinearGradient(0, 360, 0, 720);
+            groundGrad.addColorStop(0, '#7c2d12');
+            groundGrad.addColorStop(1, '#451a03');
+            ctx.fillStyle = groundGrad;
+            ctx.fillRect(0, 360, 1280, 360);
+
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, 360);
+            skyGrad.addColorStop(0, '#1c1917');
+            skyGrad.addColorStop(1, '#78350f');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, 1280, 360);
+
+            if (activeCam.id === 1) {
+                // RealSense Mast RGB
+                ctx.strokeStyle = 'rgba(251, 146, 60, 0.4)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(0, 360);
+                ctx.lineTo(1280, 360);
+                ctx.stroke();
+
+                ctx.fillStyle = '#b45309';
+                ctx.fillRect(450, 420, 60, 40);
+                ctx.fillRect(780, 390, 80, 50);
+
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
+                for (let x = 0; x < 1280; x += 80) {
+                    ctx.beginPath();
+                    ctx.moveTo(x, 360);
+                    ctx.lineTo(x + (x - 640) * 0.8, 720);
+                    ctx.stroke();
+                }
+            } else if (activeCam.id === 2) {
+                // Front Chassis
+                ctx.fillStyle = '#181818';
+                ctx.fillRect(100, 450, 140, 270);
+                ctx.fillRect(1040, 450, 140, 270);
+                ctx.fillStyle = '#38bdf8';
+                ctx.font = '16px monospace';
+                ctx.fillText('FRONT CHASSIS WHEELBASE VIEW', 480, 670);
+            } else if (activeCam.id === 3) {
+                // Manipulator
+                ctx.fillStyle = '#2d2d30';
+                ctx.fillRect(520, 480, 60, 240);
+                ctx.fillRect(700, 480, 60, 240);
+                ctx.fillStyle = '#f97316';
+                ctx.font = '16px monospace';
+                ctx.fillText('MANIPULATOR GRIPPER ALIGNMENT', 490, 450);
+            } else if (activeCam.id === 4) {
+                // Science Chamber
+                ctx.fillStyle = '#252526';
+                ctx.beginPath();
+                ctx.arc(640, 360, 200, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#a855f7';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+                ctx.fillStyle = '#a855f7';
+                ctx.font = '16px monospace';
+                ctx.fillText('CYCLONE SAMPLING CHAMBER', 500, 360);
+            }
+
+            requestAnimationFrame(drawFrame);
+        }
+
+        requestAnimationFrame(drawFrame);
+    </script>
+</body>
+</html>
+

@@ -2,9 +2,11 @@
   "name": "openmct-tutorials",
   "version": "0.0.1",
   "description": "Tutorials for Open MCT",
-  "main": "example-server/server.js",
+  "main": "main.js",
   "scripts": {
-    "start": "node example-server/server.js",
+    "start": "node run-electron.js",
+    "start:web": "node example-server/server.js",
+    "electron": "node run-electron.js",
     "clean": "rm -rf node_modules package-lock.json"
   },
   "repository": {
@@ -20,7 +22,12 @@
   "dependencies": {
     "express": "^4.19.2",
     "express-ws": "^4.0.0",
+    "mqtt": "^5.15.2",
     "openmct": "latest",
+    "three": "^0.186.0",
     "ws": "^6.1.2"
+  },
+  "devDependencies": {
+    "electron": "^44.3.0"
   }
 }

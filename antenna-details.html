@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orion Rover - 5GHz RF Comms & Antenna Link</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            border-radius: 0px !important;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif;
+            background-color: #121212;
+            color: #d4d4d4;
+            padding: 12px 16px;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Top Header Bar */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #282828;
+            flex-shrink: 0;
+        }
+
+        .header-title-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: #22c55e;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #f8fafc;
+        }
+
+        .close-btn {
+            background: #1c1c1c;
+            border: 1px solid #333333;
+            color: #e4e4e7;
+            padding: 4px 10px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .close-btn:hover {
+            background: #282828;
+        }
+
+        /* Master Status Strip */
+        .master-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #181818;
+            border: 1px solid #282828;
+            padding: 6px 12px;
+            flex-shrink: 0;
+            font-size: 11px;
+            font-family: monospace;
+        }
+
+        /* Main 2-Column Split */
+        .main-container {
+            display: grid;
+            grid-template-columns: 44% 56%;
+            gap: 10px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .panel-left, .panel-right {
+            background: #181818;
+            border: 1px solid #282828;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #888888;
+            text-transform: uppercase;
+            border-bottom: 1px solid #242424;
+            padding-bottom: 4px;
+            flex-shrink: 0;
+        }
+
+        /* KPI Strip */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .kpi-card {
+            background: #141414;
+            border: 1px solid #242424;
+            padding: 6px 8px;
+        }
+
+        .kpi-label {
+            font-size: 9px;
+            font-weight: 700;
+            color: #71717a;
+        }
+
+        .kpi-val {
+            font-size: 14px;
+            font-weight: 800;
+            font-family: monospace;
+            color: #f8fafc;
+            margin-top: 2px;
+        }
+
+        /* Table */
+        .data-table-wrap {
+            flex: 1;
+            overflow: hidden;
+            border: 1px solid #242424;
+            background: #141414;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            font-family: monospace;
+        }
+
+        th {
+            background: #1c1c1c;
+            border-bottom: 1px solid #282828;
+            color: #888888;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 700;
+        }
+
+        td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #1f1f1f;
+            color: #d4d4d4;
+        }
+
+        tr:hover td {
+            background: #1a1a1a;
+        }
+
+        /* Graph Canvas */
+        .canvas-wrap {
+            flex: 1;
+            background: #141414;
+            border: 1px solid #242424;
+            position: relative;
+            min-height: 0;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 10px;
+            font-family: monospace;
+            color: #71717a;
+            border-top: 1px solid #282828;
+            padding-top: 6px;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-title-group">
+            <div id="master-led" class="status-dot" style="background: #64748b;"></div>
+            <div class="header-title">ORION VI ROVER - 5GHz UBIQUITI RF COMMS & ANTENNA LINK</div>
+        </div>
+        <div class="header-meta">
+            <button class="close-btn" onclick="window.close()">CLOSE</button>
+        </div>
+    </div>
+
+    <!-- Master Strip -->
+    <div class="master-strip">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #71717a;">LINK STATE:</span>
+            <span id="master-state-text" style="font-weight: 800; color: #64748b;">5GHz RF COMMS: NOT CONNECTED (AWAITING MQTT 192.168.1.1:1883)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span style="color: #94a3b8;">RADIO: UBIQUITI BULLET AC (5 GHz)</span>
+            <span id="alarm-count-text" style="color: #64748b; font-weight: 800;">LINK INACTIVE</span>
+        </div>
+    </div>
+
+    <!-- Main Content (2 Columns, Single-Screen) -->
+    <div class="main-container">
+        <!-- Left: Telemetry Data Table -->
+        <div class="panel-left">
+            <div class="panel-title">RF Telemetry & Link Quality Data</div>
+
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">SIGNAL RSSI</div>
+                    <div id="kpi-rssi" class="kpi-val" style="color: #a1a1aa;">--- dBm</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">DOWNLINK</div>
+                    <div id="kpi-down" class="kpi-val" style="color: #a1a1aa;">--- Mbps</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">UPLINK</div>
+                    <div id="kpi-up" class="kpi-val" style="color: #a1a1aa;">--- Mbps</div>
+                </div>
+            </div>
+
+            <div class="data-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>PARAMETER</th>
+                            <th>VALUE</th>
+                            <th>NOMINAL LIMIT</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Signal Strength (RSSI)</td>
+                            <td id="row-rssi" style="color: #38bdf8; font-weight: 700;">--- dBm</td>
+                            <td>&gt; -75 dBm</td>
+                            <td><span id="badge-rssi" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Signal-to-Noise (SNR)</td>
+                            <td id="row-snr" style="font-weight: 700;">--- dB</td>
+                            <td>&gt; 20 dB</td>
+                            <td><span id="badge-snr" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Downlink Throughput</td>
+                            <td id="row-down" style="color: #22c55e; font-weight: 700;">--- Mbps</td>
+                            <td>&gt; 25.0 Mbps</td>
+                            <td><span id="badge-down" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Uplink Throughput</td>
+                            <td id="row-up" style="color: #a855f7; font-weight: 700;">--- Mbps</td>
+                            <td>&gt; 10.0 Mbps</td>
+                            <td><span id="badge-up" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Base Station Ping Latency</td>
+                            <td id="row-ping" style="font-weight: 700;">--- ms</td>
+                            <td>&lt; 50 ms</td>
+                            <td><span id="badge-ping" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Packet Loss Percentage</td>
+                            <td id="row-loss" style="font-weight: 700;">--- %</td>
+                            <td>&lt; 1.0 %</td>
+                            <td><span id="badge-loss" style="color: #64748b; font-weight: 800;">---</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="background: #141414; border: 1px solid #242424; padding: 6px 10px; font-size: 10px; font-family: monospace; color: #a1a1aa; flex-shrink: 0;">
+                RF Link Specs: 5.8 GHz Band (Ch 149) | 40 MHz Channel | H.264 Video stream load ~28 Mbps
+            </div>
+        </div>
+
+        <!-- Right: Real-Time Signal & Throughput Graph -->
+        <div class="panel-right">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #242424; padding-bottom: 4px; flex-shrink: 0;">
+                <div class="panel-title" style="border-bottom: none; padding-bottom: 0;">Real-Time Signal & Throughput Trend</div>
+                <div style="display: flex; gap: 8px; font-size: 9px; font-family: monospace;">
+                    <span style="color: #38bdf8;">■ RSSI (dBm)</span>
+                    <span style="color: #22c55e;">■ DOWNLINK (Mbps)</span>
+                    <span style="color: #a855f7;">■ UPLINK (Mbps)</span>
+                </div>
+            </div>
+            <div class="canvas-wrap">
+                <canvas id="rf-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div>ORION VI ROVER | 5GHz UBIQUITI RADIO TELEMETRY | ERC 2026 MISSION CONTROL</div>
+        <div id="clock-display">UTC: --:--:--</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('rf-chart');
+        const ctx = canvas.getContext('2d');
+        const historyData = {
+            rssi: [],
+            down: [],
+            up: []
+        };
+        const MAX_POINTS = 60;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        function recordPoint(key, val) {
+            historyData[key].push(Number(val) || 0);
+            if (historyData[key].length > MAX_POINTS) historyData[key].shift();
+        }
+
+        // Realtime WebSocket link to gateway
+        function connectWs() {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${window.location.host}/realtime`;
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ sub: '*' }));
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg && msg.id && msg.id.startsWith('rover.net')) {
+                        handlePoint(msg);
+                    }
+                } catch (_) {}
+            };
+
+            ws.onclose = () => setTimeout(connectWs, 2000);
+        }
+        connectWs();
+
+        const latestVals = {};
+        function handlePoint(pt) {
+            latestVals[pt.id] = pt.value;
+            updateUI();
+        }
+
+        function updateUI() {
+            const hasData = Object.keys(latestVals).length > 0;
+            const statusDot = document.querySelector('.status-dot');
+            const stateText = document.getElementById('master-state-text');
+            const radioStatus = document.getElementById('alarm-count-text');
+
+            if (!hasData) {
+                if (statusDot) statusDot.style.background = '#64748b';
+                if (stateText) {
+                    stateText.style.color = '#64748b';
+                    stateText.textContent = '5GHz RF COMMS: NOT CONNECTED (AWAITING MQTT 192.168.1.1:1883)';
+                }
+                if (radioStatus) {
+                    radioStatus.style.color = '#64748b';
+                    radioStatus.textContent = 'LINK INACTIVE';
+                }
+
+                document.getElementById('kpi-rssi').textContent = '--- dBm';
+                document.getElementById('kpi-down').textContent = '--- Mbps';
+                document.getElementById('kpi-up').textContent = '--- Mbps';
+
+                document.getElementById('row-rssi').textContent = '--- dBm';
+                document.getElementById('row-snr').textContent = '--- dB';
+                document.getElementById('row-down').textContent = '--- Mbps';
+                document.getElementById('row-up').textContent = '--- Mbps';
+                document.getElementById('row-ping').textContent = '--- ms';
+                document.getElementById('row-loss').textContent = '--- %';
+                document.getElementById('badge-rssi').textContent = '---';
+                document.getElementById('badge-snr').textContent = '---';
+                document.getElementById('badge-down').textContent = '---';
+                document.getElementById('badge-up').textContent = '---';
+                document.getElementById('badge-ping').textContent = '---';
+                document.getElementById('badge-loss').textContent = '---';
+
+                drawChart();
+                return;
+            }
+
+            if (statusDot) statusDot.style.background = '#22c55e';
+            if (stateText) {
+                stateText.style.color = '#22c55e';
+                stateText.textContent = '5GHz RF COMMS NOMINAL';
+            }
+            if (radioStatus) {
+                radioStatus.style.color = '#22c55e';
+                radioStatus.textContent = 'LINK ACTIVE';
+            }
+
+            const hasRssi = typeof latestVals['rover.net.rssi'] === 'number';
+            const hasSnr = typeof latestVals['rover.net.snr'] === 'number';
+            const hasDown = typeof latestVals['rover.net.bitrate_down'] === 'number';
+            const hasUp = typeof latestVals['rover.net.bitrate_up'] === 'number';
+            const hasLat = typeof latestVals['rover.net.latency'] === 'number';
+            const hasLoss = typeof latestVals['rover.net.packet_loss'] === 'number';
+
+            if (hasRssi) {
+                const rssi = latestVals['rover.net.rssi'];
+                document.getElementById('kpi-rssi').textContent = `${Number(rssi).toFixed(0)} dBm`;
+                document.getElementById('row-rssi').textContent = `${Number(rssi).toFixed(0)} dBm`;
+                document.getElementById('badge-rssi').textContent = rssi > -75 ? 'GOOD' : 'POOR';
+                document.getElementById('badge-rssi').style.color = rssi > -75 ? '#22c55e' : '#f59e0b';
+                recordPoint('rssi', rssi);
+            } else {
+                document.getElementById('kpi-rssi').textContent = '--- dBm';
+                document.getElementById('row-rssi').textContent = '--- dBm';
+                document.getElementById('badge-rssi').textContent = '---';
+                document.getElementById('badge-rssi').style.color = '#64748b';
+            }
+
+            if (hasSnr) {
+                const snr = latestVals['rover.net.snr'];
+                document.getElementById('row-snr').textContent = `${Number(snr).toFixed(0)} dB`;
+                document.getElementById('badge-snr').textContent = snr > 20 ? 'NOMINAL' : 'DEGRADED';
+                document.getElementById('badge-snr').style.color = snr > 20 ? '#22c55e' : '#f59e0b';
+            } else {
+                document.getElementById('row-snr').textContent = '--- dB';
+                document.getElementById('badge-snr').textContent = '---';
+                document.getElementById('badge-snr').style.color = '#64748b';
+            }
+
+            if (hasDown) {
+                const down = latestVals['rover.net.bitrate_down'];
+                document.getElementById('kpi-down').textContent = `${Number(down).toFixed(1)} Mbps`;
+                document.getElementById('row-down').textContent = `${Number(down).toFixed(1)} Mbps`;
+                document.getElementById('badge-down').textContent = down >= 25 ? 'OK' : 'LOW';
+                document.getElementById('badge-down').style.color = down >= 25 ? '#22c55e' : '#f59e0b';
+                recordPoint('down', down);
+            } else {
+                document.getElementById('kpi-down').textContent = '--- Mbps';
+                document.getElementById('row-down').textContent = '--- Mbps';
+                document.getElementById('badge-down').textContent = '---';
+                document.getElementById('badge-down').style.color = '#64748b';
+            }
+
+            if (hasUp) {
+                const up = latestVals['rover.net.bitrate_up'];
+                document.getElementById('kpi-up').textContent = `${Number(up).toFixed(1)} Mbps`;
+                document.getElementById('row-up').textContent = `${Number(up).toFixed(1)} Mbps`;
+                document.getElementById('badge-up').textContent = up >= 10 ? 'OK' : 'LOW';
+                document.getElementById('badge-up').style.color = up >= 10 ? '#22c55e' : '#f59e0b';
+                recordPoint('up', up);
+            } else {
+                document.getElementById('kpi-up').textContent = '--- Mbps';
+                document.getElementById('row-up').textContent = '--- Mbps';
+                document.getElementById('badge-up').textContent = '---';
+                document.getElementById('badge-up').style.color = '#64748b';
+            }
+
+            if (hasLat) {
+                const lat = latestVals['rover.net.latency'];
+                document.getElementById('row-ping').textContent = `${Number(lat).toFixed(0)} ms`;
+                document.getElementById('badge-ping').textContent = lat <= 50 ? 'LOW' : 'HIGH';
+                document.getElementById('badge-ping').style.color = lat <= 50 ? '#22c55e' : '#ef4444';
+            } else {
+                document.getElementById('row-ping').textContent = '--- ms';
+                document.getElementById('badge-ping').textContent = '---';
+                document.getElementById('badge-ping').style.color = '#64748b';
+            }
+
+            if (hasLoss) {
+                const loss = latestVals['rover.net.packet_loss'];
+                document.getElementById('row-loss').textContent = `${Number(loss).toFixed(1)} %`;
+                document.getElementById('badge-loss').textContent = loss <= 1.0 ? 'ZERO' : 'HIGH';
+                document.getElementById('badge-loss').style.color = loss <= 1.0 ? '#22c55e' : '#ef4444';
+            } else {
+                document.getElementById('row-loss').textContent = '--- %';
+                document.getElementById('badge-loss').textContent = '---';
+                document.getElementById('badge-loss').style.color = '#64748b';
+            }
+
+            drawChart();
+        }
+
+        function drawChart() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const w = canvas.width;
+            const h = canvas.height;
+            const pad = { top: 20, right: 15, bottom: 25, left: 40 };
+
+            const gw = w - pad.left - pad.right;
+            const gh = h - pad.top - pad.bottom;
+
+            // Grid lines (0 to 60 Mbps)
+            ctx.strokeStyle = '#222222';
+            ctx.lineWidth = 1;
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px monospace';
+
+            const maxM = 60;
+            const steps = 4;
+            for (let i = 0; i <= steps; i++) {
+                const y = pad.top + gh - (i / steps) * gh;
+                const v = (i / steps) * maxM;
+                ctx.beginPath();
+                ctx.moveTo(pad.left, y);
+                ctx.lineTo(w - pad.right, y);
+                ctx.stroke();
+                ctx.fillText(`${v.toFixed(0)}M`, 10, y + 3);
+            }
+
+            function plotSeries(data, color, width, minV, maxV) {
+                if (data.length < 2) return;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                data.forEach((val, idx) => {
+                    const x = pad.left + (idx / (MAX_POINTS - 1)) * gw;
+                    const clamped = Math.max(minV, Math.min(maxV, val));
+                    const y = pad.top + gh - ((clamped - minV) / (maxV - minV)) * gh;
+                    if (idx === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+
+            // Throughput plotted against 0..60
+            plotSeries(historyData.up, '#a855f7', 1.5, 0, 60);
+            plotSeries(historyData.down, '#22c55e', 2.0, 0, 60);
+
+            // RSSI (-90 to -30 dBm normalized to bottom 30% of canvas)
+            plotSeries(historyData.rssi, '#38bdf8', 1.5, -90, -30);
+        }
+
+        // Clock
+        setInterval(() => {
+            document.getElementById('clock-display').textContent = `UTC: ${new Date().toISOString().substring(11, 19)}`;
+        }, 1000);
+
+        updateUI();
+        drawChart();
+    </script>
+</body>
+</html>

@@ -1,0 +1,144 @@
+{
+  "Power/feedback": {
+    "temp_c": -127,
+    "bat_1_v": 0,
+    "bat_2_v": 0,
+    "bat_3_v": 19.03943062,
+    "bat_4_v": 0,
+    "adc_wl": 3039,
+    "adc_wr": 3046,
+    "adc_ram": 3113,
+    "adc_elek": 3035,
+    "adc_sci": 2985,
+    "adc_inne": 3011
+  },
+  "rover/power/telemetry": {
+    "bus_voltage": 19.80,
+    "bus_current": 14.50,
+    "batteries": [
+      { "id": 1, "voltage": 19.82, "current": 3.65, "temp": 28.4, "soc": 87.5 },
+      { "id": 2, "voltage": 19.78, "current": 3.60, "temp": 29.1, "soc": 86.8 },
+      { "id": 3, "voltage": 19.81, "current": 3.62, "temp": 27.8, "soc": 87.2 },
+      { "id": 4, "voltage": 19.80, "current": 3.63, "temp": 28.2, "soc": 87.0 }
+    ],
+    "rails": {
+      "drive": { "v": 19.80, "i": 8.50, "state": 1 },
+      "jetson": { "v": 12.02, "i": 2.35, "state": 1 },
+      "rpi_esp": { "v": 5.05, "i": 4.12, "state": 1 },
+      "arm": { "v": 12.01, "i": 0.85, "state": 1 },
+      "science": { "v": 5.03, "i": 0.45, "state": 1 },
+      "comms": { "v": 12.00, "i": 1.15, "state": 1 }
+    }
+  },
+  "rover/drive/telemetry": {
+    "state": "ENABLED",
+    "speed_limit": 1.20,
+    "suspension_angle": 1.5,
+    "speeds": {
+      "fl": 42.5,
+      "ml": 42.1,
+      "rl": 42.0,
+      "fr": 42.4,
+      "mr": 42.2,
+      "rr": 42.1
+    },
+    "currents": {
+      "fl": 1.82,
+      "ml": 1.91,
+      "rl": 1.85,
+      "fr": 1.80,
+      "mr": 1.95,
+      "rr": 1.88
+    }
+  },
+  "rover/compute/telemetry": {
+    "jetson": {
+      "cpu_temp": 44.5,
+      "gpu_temp": 42.1,
+      "ram_pct": 48.2,
+      "cpu_pct": 32.5,
+      "disk_pct": 36.8
+    },
+    "rpi": {
+      "cpu_temp": 41.2,
+      "ram_pct": 38.0,
+      "load": 0.82
+    },
+    "network": {
+      "latency": 18,
+      "rssi": -58,
+      "bitrate_up": 0.85,
+      "bitrate_down": 28.4,
+      "packet_loss": 0.1
+    }
+  },
+  "rover/perception/telemetry": {
+    "realsense": {
+      "alive": 1,
+      "fps": 30,
+      "temp": 34.2
+    },
+    "active_cam": 1,
+    "video_bitrate": 28.5
+  },
+  "rover/navigation/telemetry": {
+    "pitch": 1.2,
+    "roll": -0.8,
+    "yaw": 114.5,
+    "pose_x": 12.4,
+    "pose_y": 8.6,
+    "heading": 114.5,
+    "nav2_state": "NAVIGATING",
+    "slam_health": "NOMINAL",
+    "slam_keyframes": 312,
+    "target_wp_id": 1,
+    "target_wp_dist": 4.8,
+    "target_wp_bearing": 12.0,
+    "autonomy_mode": "TELEOP"
+  },
+  "rover/manipulator/telemetry": {
+    "gripper_id": "SAMPLING",
+    "pose": "STOW",
+    "joints": {
+      "base": 0.0,
+      "shoulder": 45.0,
+      "elbow": -30.0,
+      "wrist_pitch": 10.0,
+      "wrist_roll": 0.0,
+      "gripper": 25.0
+    },
+    "loads": {
+      "base": 0.25,
+      "shoulder": 0.45,
+      "elbow": 0.30
+    }
+  },
+  "rover/science/telemetry": {
+    "vacuum_state": "OFF",
+    "vacuum_pwm": 0,
+    "nozzle_rpm": 0,
+    "gas_blast": "CLOSED",
+    "cyclone_door": "CLOSED",
+    "tensometer_weight": 34.5,
+    "fluid_level": 85.0,
+    "sample_count": 1,
+    "pressure": 101.3
+  },
+  "rover/safety/telemetry": {
+    "estop_hardware": 0,
+    "kill_chain_state": "CLEAR",
+    "heartbeat_timer": 5.0,
+    "uvlo_tripped": 0,
+    "enclosure_temp": 31.5,
+    "last_trip_reason": "NONE"
+  },
+  "rover/antenna/telemetry": {
+    "uplink": 48.5,
+    "downlink": 126.4,
+    "rssi": -58.0,
+    "snr": 34.2,
+    "quality": 92.0,
+    "latency": 14.5,
+    "packet_loss": 0.10
+  }
+}

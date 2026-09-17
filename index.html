@@ -1,28 +1,389 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Open MCT Tutorials</title>
+    <meta charset="utf-8">
+    <title>Orion VI Ground Station - ERC 2026</title>
     <script src="node_modules/openmct/dist/openmct.js"></script>
     <script src="lib/http.js"></script>
-    <script src="dictionary-plugin.js"></script>
-    <script src="historical-telemetry-plugin.js"></script>
-    <script src="realtime-telemetry-plugin.js"></script>
-    <script>
+    <script src="node_modules/mqtt/dist/mqtt.min.js"></script>
+
+    <!-- Orion Custom Subsystem Services & Plugins -->
+    <script src="orion-safety-command-service.js"></script>
+    <script src="orion-exception-engine.js"></script>
+    <script src="orion-status-widgets-plugin.js"></script>
+    <script src="orion-dictionary-plugin.js"></script>
+    <script src="orion-telemetry-plugin.js"></script>
+    <script src="orion-task-clock-plugin.js"></script>
+    <script src="orion-gamepad-plugin.js"></script>
+    <script src="orion-camera-mosaic-plugin.js"></script>
+    <script src="orion-attitude-indicator-plugin.js"></script>
+    <script src="orion-power-strip-plugin.js"></script>
+    <script src="orion-safety-chain-plugin.js"></script>
+    <script src="orion-science-pad-plugin.js"></script>
+    <script src="orion-manipulator-pad-plugin.js"></script>
+    <script src="orion-modes-plugin.js"></script>
+    <script src="orion-battery-plugin.js"></script>
+    <script src="orion-antenna-plugin.js"></script>
+    <script src="orion-model-plugin.js"></script>
+
+    <style>
+        .l-shell__app-logo {
+            background-size: contain !important;
+            background-position: center !important;
+            background-repeat: no-repeat !important;
+            width: 26px !important;
+            height: 26px !important;
+            filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.3));
+            transition: transform 0.2s ease;
+        }
+        .l-shell__app-logo:hover {
+            transform: scale(1.1);
+        }
+
+        /* Global Square Edges & Aerospace Dark Theme (NASA-STD-3001 / ECSS) */
+        *, *::before, *::after {
+            border-radius: 0px !important;
+        }
+
+        body, #app, .l-shell, .l-shell__main-container, .l-shell__main-view {
+            background-color: #121212 !important;
+            color: #d4d4d4 !important;
+        }
+
+        .l-shell__head {
+            background: #141414 !important;
+            border-bottom: 1px solid #282828 !important;
+        }
+
+        .l-shell__head-section.l-shell__indicators {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-shrink: 0 !important;
+            margin-left: 8px !important;
+        }
+
+        /* Suppress intrusive notification banner across header; link status shown on indicators */
+        .c-message-banner {
+            display: none !important;
+        }
+
+        .l-shell__head__collapse-button {
+            display: none !important;
+        }
+
+        .l-shell__pane-tree, .l-shell__pane-inspector, .c-pane {
+            background: #161616 !important;
+            border-color: #242424 !important;
+        }
+
+        .c-tree, .c-tree__item {
+            background: transparent !important;
+            color: #cccccc !important;
+        }
+
+        .c-tree__item:hover {
+            background: rgba(255, 255, 255, 0.05) !important;
+        }
+
+        .c-tree__item.is-navigated-object, .c-tree__item.is-selected {
+            background: rgba(255, 255, 255, 0.09) !important;
+        }
+
+        /* Native Tabs View */
+        .c-tabs-view, .c-tabs-view__content {
+            background-color: #121212 !important;
+        }
+
+        .c-tabs-view__tabs-holder, .c-tab, .c-tabs-view__tab {
+            background: #181818 !important;
+            border-color: #282828 !important;
+            color: #888888 !important;
+        }
+
+        .c-tabs-view__tab.is-active, .c-tab.is-active, .c-tab--active {
+            background: #222222 !important;
+            color: #f0f0f0 !important;
+            border-bottom: 2px solid #38bdf8 !important;
+        }
+
+        /* Native Display Layout & Frames */
+        .c-layout {
+            background-color: #121212 !important;
+        }
+
+        .c-layout-frame, .c-layout__frame, .c-sub-object-view {
+            background-color: #181818 !important;
+            border: 1px solid #282828 !important;
+            box-shadow: none !important;
+        }
+
+        .c-layout-frame__header, .c-frame-header {
+            background: #202020 !important;
+            border-bottom: 1px solid #282828 !important;
+            color: #e0e0e0 !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            letter-spacing: 0.5px !important;
+        }
+
+        /* Tables & LAD Tables */
+        .c-table, .c-lad-table, table {
+            background-color: #161616 !important;
+            color: #cccccc !important;
+        }
+
+        .c-table thead tr, .c-table.c-table__headers, table thead tr {
+            background: #202020 !important;
+            border-bottom: 1px solid #282828 !important;
+            color: #888888 !important;
+            font-size: 11px !important;
+        }
+
+        .c-table tbody tr, table tbody tr {
+            background: transparent !important;
+            border-bottom: 1px solid #222222 !important;
+        }
+
+        .c-table tbody tr:hover, table tbody tr:hover {
+            background: #1e1e1e !important;
+        }
+
+        .c-table td, table td, .c-table th, table th {
+            border-color: #222222 !important;
+        }
+
+        /* Plots */
+        .c-plot, .c-plot--overlay, .gl-plot {
+            background-color: #141414 !important;
+        }
+
+        /* Buttons, Menus, Overlays, Dialogs */
+        .c-button, .c-button--major, .c-menu, .c-super-menu, .c-overlay, .c-modal, .c-dialog, .c-form {
+            border-radius: 0px !important;
+        }
+
+        .c-menu, .c-super-menu {
+            background: #181818 !important;
+            border: 1px solid #333333 !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
+        }
+
+        /* Ensure all floating menus, create dropdowns, and context menus appear in front of #openmct-app (z-index 100) */
+        .c-menu,
+        .c-super-menu,
+        .c-create-menu,
+        .c-menu--pointer,
+        [class*="c-menu"],
+        [class*="c-super-menu"] {
+            z-index: 10000 !important;
+        }
+
+        /* Ensure all modal dialogs and overlays appear above menus */
+        .c-overlay,
+        .c-modal,
+        .c-dialog,
+        .c-form,
+        [class*="c-overlay"],
+        [class*="c-modal"],
+        [class*="c-dialog"] {
+            z-index: 10001 !important;
+        }
+
+        .c-create-button--w, .l-shell__create-button, .c-create-button {
+            pointer-events: auto !important;
+            cursor: pointer !important;
+        }
+
+        .c-menu__item:hover, .c-super-menu__item:hover {
+            background: #252525 !important;
+        }
+
+        /* Time Conductor */
+        .c-conductor, .c-conductor__controls {
+            background: #181818 !important;
+            border-top: 1px solid #282828 !important;
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "/node_modules/three/build/three.module.js",
+            "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
         openmct.setAssetPath('node_modules/openmct/dist');
+
+        // Core Infrastructure Plugins
         openmct.install(openmct.plugins.LocalStorage());
         openmct.install(openmct.plugins.MyItems());
         openmct.install(openmct.plugins.UTCTimeSystem());
-        openmct.time.setClock('local');
-        openmct.time.setClockOffsets({start: -15 * 60 * 1000, end: 0});
-        openmct.time.setTimeSystem('utc');
         openmct.install(openmct.plugins.Espresso());
 
-        openmct.install(DictionaryPlugin());
-        openmct.install(HistoricalTelemetryPlugin());
-        openmct.install(RealtimeTelemetryPlugin());
-        document.addEventListener('DOMContentLoaded', function () {
+        // Standard Open MCT Object Creation & Visualization Plugins
+        if (typeof openmct.plugins.Plot === 'function') {
+            try { openmct.install(openmct.plugins.Plot()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.TelemetryTable === 'function') {
+            try { openmct.install(openmct.plugins.TelemetryTable()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.LADTable === 'function') {
+            try { openmct.install(openmct.plugins.LADTable()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.DisplayLayout === 'function') {
+            try { openmct.install(openmct.plugins.DisplayLayout({ showAsView: ['summary-widget'] })); } catch (_) {}
+        }
+        if (typeof openmct.plugins.FlexibleLayout === 'function') {
+            try { openmct.install(openmct.plugins.FlexibleLayout()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Tabs === 'function') {
+            try { openmct.install(openmct.plugins.Tabs()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.SummaryWidget === 'function') {
+            try { openmct.install(openmct.plugins.SummaryWidget()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Notebook === 'function') {
+            try { openmct.install(openmct.plugins.Notebook()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Condition === 'function') {
+            try { openmct.install(openmct.plugins.Condition()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.ConditionWidget === 'function') {
+            try { openmct.install(openmct.plugins.ConditionWidget()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Gauge === 'function') {
+            try { openmct.install(openmct.plugins.Gauge()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.NewFolderAction === 'function') {
+            try { openmct.install(openmct.plugins.NewFolderAction()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.BarChart === 'function') {
+            try { openmct.install(openmct.plugins.BarChart()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.ScatterPlot === 'function') {
+            try { openmct.install(openmct.plugins.ScatterPlot()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Clock === 'function') {
+            try { openmct.install(openmct.plugins.Clock({ enableClockIndicator: true })); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Timer === 'function') {
+            try { openmct.install(openmct.plugins.Timer()); } catch (_) {}
+        }
+        if (typeof openmct.plugins.Filters === 'function') {
+            try { openmct.install(openmct.plugins.Filters(['table', 'telemetry.plot.overlay'])); } catch (_) {}
+        }
+
+        // Time Conductor Configuration
+        if (typeof openmct.plugins.Conductor === 'function') {
+            openmct.install(openmct.plugins.Conductor({
+                menuOptions: [
+                    {
+                        name: "Realtime",
+                        timeSystem: "utc",
+                        clock: "local",
+                        clockOffsets: {
+                            start: -15 * 60 * 1000,
+                            end: 0
+                        }
+                    },
+                    {
+                        name: "Fixed",
+                        timeSystem: "utc",
+                        bounds: {
+                            start: Date.now() - 30 * 60 * 1000,
+                            end: Date.now()
+                        }
+                    }
+                ]
+            }));
+        }
+
+        openmct.time.setClock('local');
+        openmct.time.setClockOffsets({ start: -15 * 60 * 1000, end: 0 });
+        openmct.time.setTimeSystem('utc');
+
+        // Set Orion Branding (upper panel app logo)
+        if (typeof openmct.branding === 'function') {
+            openmct.branding({
+                smallLogoImage: '/logotyp_pion_white.png',
+                aboutHtml: `
+                    <div style="text-align: center; padding: 24px 16px; font-family: sans-serif;">
+                        <img src="/logotyp_pion_white.png" style="height: 100px; width: 100px; object-fit: contain; margin-bottom: 16px;" alt="Orion VI Logo" />
+                        <h2 style="margin: 0 0 8px 0; color: #f8fafc; letter-spacing: 2px; font-weight: 800;">ORION VI ROVER</h2>
+                        <p style="color: #94a3b8; font-size: 13px; margin-bottom: 4px;">Mission Control & Telemetry System | KN MicroChip | ERC 2026</p>
+                        <p style="color: #64748b; font-size: 11px; font-family: monospace;">20V 4Ah Power Bus (5S Li-ion) | 5GHz Wi-Fi Telemetry</p>
+                    </div>
+                `
+            });
+        }
+
+        // Install Orion VI Taxonomy & Normalized Telemetry Providers
+        openmct.install(OrionDictionaryPlugin());
+        openmct.install(OrionTelemetryPlugin());
+
+        // Install Orion Task Clock & Timeline Engine
+        openmct.install(OrionTaskClockPlugin());
+
+        // Install Teleoperation, Gamepad & Perception Plugins
+        openmct.install(OrionGamepadPlugin());
+        openmct.install(OrionCameraMosaicPlugin());
+        openmct.install(OrionAttitudeIndicatorPlugin());
+
+        // Install Power & Safety Plugins
+        openmct.install(OrionPowerStripPlugin());
+        openmct.install(OrionSafetyChainPlugin());
+
+        // Install Actuation Plugins (Science & Manipulator)
+        openmct.install(OrionSciencePadPlugin());
+        openmct.install(OrionManipulatorPadPlugin());
+
+        // Install NASA / ECSS Exception & Status Widgets Plugin
+        openmct.install(OrionStatusWidgetsPlugin());
+
+        // Install Operating Modes & Layouts
+        openmct.install(OrionModesPlugin());
+
+        // Install Diagnostic Upper Panel Plugins (Battery & 5GHz Antenna)
+        openmct.install(OrionBatteryPlugin({
+            brokerUrl: 'ws://localhost:9001',
+            topic: 'Power/#',
+            enableOnScreenGraph: false
+        }));
+
+        openmct.install(OrionAntennaPlugin({
+            brokerUrl: 'ws://localhost:9001',
+            topic: 'rover/antenna/#'
+        }));
+
+        // Install Orion 3D Model View Plugin
+        openmct.install(OrionModelPlugin({
+            modelUrl: '/orion_VI.glb',
+            THREE: THREE,
+            GLTFLoader: GLTFLoader,
+            OrbitControls: OrbitControls
+        }));
+
+        function startApp() {
             openmct.start();
-        });
+            // Default view: Native Open MCT OPERATING MODES Tabs view
+            if (!window.location.hash || window.location.hash === '#/' || window.location.hash === '#/browse') {
+                window.location.hash = '#/browse/orion.taxonomy:modes_tab';
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', startApp);
+        } else {
+            startApp();
+        }
     </script>
 </head>
 <body>

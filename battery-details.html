@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orion Rover - Battery Telemetry & Diagnostics</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            border-radius: 0px !important;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace, sans-serif;
+            background-color: #121212;
+            color: #d4d4d4;
+            padding: 12px 16px;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* Top Header Bar */
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #282828;
+            flex-shrink: 0;
+        }
+
+        .header-title-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            background: #22c55e;
+            flex-shrink: 0;
+        }
+
+        .header-title {
+            font-size: 14px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #f8fafc;
+        }
+
+        .header-meta {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .mode-btn, .close-btn {
+            background: #1c1c1c;
+            border: 1px solid #333333;
+            color: #e4e4e7;
+            padding: 4px 10px;
+            font-size: 10px;
+            font-weight: 700;
+            font-family: monospace;
+            cursor: pointer;
+        }
+
+        .mode-btn:hover, .close-btn:hover {
+            background: #282828;
+        }
+
+        .mode-btn.is-sim {
+            color: #c084fc;
+            border-color: #a855f7;
+        }
+
+        .mode-btn.is-act {
+            color: #38bdf8;
+            border-color: #0284c7;
+        }
+
+        /* Master Status Strip */
+        .master-strip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #181818;
+            border: 1px solid #282828;
+            padding: 6px 12px;
+            flex-shrink: 0;
+            font-size: 11px;
+            font-family: monospace;
+        }
+
+        /* Main 2-Column Split */
+        .main-container {
+            display: grid;
+            grid-template-columns: 44% 56%;
+            gap: 10px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .panel-left, .panel-right {
+            background: #181818;
+            border: 1px solid #282828;
+            padding: 10px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-height: 0;
+            overflow: hidden;
+        }
+
+        .panel-title {
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            color: #888888;
+            text-transform: uppercase;
+            border-bottom: 1px solid #242424;
+            padding-bottom: 4px;
+            flex-shrink: 0;
+        }
+
+        /* KPI Strip */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
+        .kpi-card {
+            background: #141414;
+            border: 1px solid #242424;
+            padding: 6px 8px;
+        }
+
+        .kpi-label {
+            font-size: 9px;
+            font-weight: 700;
+            color: #71717a;
+        }
+
+        .kpi-val {
+            font-size: 14px;
+            font-weight: 800;
+            font-family: monospace;
+            color: #f8fafc;
+            margin-top: 2px;
+        }
+
+        /* Table */
+        .data-table-wrap {
+            flex: 1;
+            overflow: hidden;
+            border: 1px solid #242424;
+            background: #141414;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 11px;
+            font-family: monospace;
+        }
+
+        th {
+            background: #1c1c1c;
+            border-bottom: 1px solid #282828;
+            color: #888888;
+            padding: 6px 8px;
+            text-align: left;
+            font-weight: 700;
+        }
+
+        td {
+            padding: 6px 8px;
+            border-bottom: 1px solid #1f1f1f;
+            color: #d4d4d4;
+        }
+
+        tr:hover td {
+            background: #1a1a1a;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 1px 5px;
+            font-size: 9px;
+            font-weight: 800;
+            background: #14532d33;
+            color: #22c55e;
+            border: 1px solid #166534;
+        }
+
+        .status-badge.warn {
+            background: #78350f33;
+            color: #f59e0b;
+            border-color: #d97706;
+        }
+
+        .status-badge.crit {
+            background: #7f1d1d33;
+            color: #ef4444;
+            border-color: #dc2626;
+        }
+
+        .status-badge.unlinked {
+            background: #1e293b33 !important;
+            color: #64748b !important;
+            border-color: #334155 !important;
+        }
+
+        /* Graph Canvas */
+        .canvas-wrap {
+            flex: 1;
+            background: #141414;
+            border: 1px solid #242424;
+            position: relative;
+            min-height: 0;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 10px;
+            font-family: monospace;
+            color: #71717a;
+            border-top: 1px solid #282828;
+            padding-top: 6px;
+            flex-shrink: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-title-group">
+            <div class="status-dot" style="background: #64748b;"></div>
+            <div class="header-title">ORION VI ROVER - POWER SYSTEM & 4-PACK BATTERIES</div>
+        </div>
+        <div class="header-meta">
+            <button id="mode-toggle-btn" class="mode-btn is-act">MODE: ACTUAL (MQTT)</button>
+            <button class="close-btn" onclick="window.close()">CLOSE</button>
+        </div>
+    </div>
+
+    <!-- Master Strip -->
+    <div class="master-strip">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="color: #71717a;">SYSTEM STATE:</span>
+            <span id="master-state-text" style="font-weight: 800; color: #64748b;">NOT CONNECTED (AWAITING MQTT 192.168.1.1:1883)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <span id="mqtt-source-text" style="color: #94a3b8;">TRANSPORT: MQTT 192.168.1.1:1883</span>
+            <span id="alarm-count-text" style="color: #64748b; font-weight: 800;">NO DATA RECEIVED</span>
+        </div>
+    </div>
+
+    <!-- Main Content (2 Columns, Single-Screen) -->
+    <div class="main-container">
+        <!-- Left: Telemetry Data Table -->
+        <div class="panel-left">
+            <div class="panel-title">Power Bus & Module Telemetry Data</div>
+
+            <div class="kpi-row">
+                <div class="kpi-card">
+                    <div class="kpi-label">BUS VOLTAGE</div>
+                    <div id="kpi-bus-v" class="kpi-val">--- V</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">TOTAL CURRENT</div>
+                    <div id="kpi-bus-i" class="kpi-val">--- A</div>
+                </div>
+                <div class="kpi-card">
+                    <div class="kpi-label">SYSTEM SoC</div>
+                    <div id="kpi-soc" class="kpi-val">--- %</div>
+                </div>
+            </div>
+
+            <div class="data-table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>MODULE</th>
+                            <th>VOLTS</th>
+                            <th>CURRENT</th>
+                            <th>TEMP</th>
+                            <th>SoC</th>
+                            <th>STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modules-table-body">
+                        <tr>
+                            <td>Pack 1</td>
+                            <td id="row-v1">--- V</td>
+                            <td id="row-i1">--- A</td>
+                            <td id="row-t1">--- °C</td>
+                            <td id="row-soc1">--- %</td>
+                            <td><span id="badge-m1" class="status-badge unlinked">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Pack 2</td>
+                            <td id="row-v2">--- V</td>
+                            <td id="row-i2">--- A</td>
+                            <td id="row-t2">--- °C</td>
+                            <td id="row-soc2">--- %</td>
+                            <td><span id="badge-m2" class="status-badge unlinked">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Pack 3</td>
+                            <td id="row-v3">--- V</td>
+                            <td id="row-i3">--- A</td>
+                            <td id="row-t3">--- °C</td>
+                            <td id="row-soc3">--- %</td>
+                            <td><span id="badge-m3" class="status-badge unlinked">---</span></td>
+                        </tr>
+                        <tr>
+                            <td>Pack 4</td>
+                            <td id="row-v4">--- V</td>
+                            <td id="row-i4">--- A</td>
+                            <td id="row-t4">--- °C</td>
+                            <td id="row-soc4">--- %</td>
+                            <td><span id="badge-m4" class="status-badge unlinked">---</span></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div id="anomaly-summary-box" style="background: #141414; border: 1px solid #242424; padding: 6px 10px; font-size: 10px; font-family: monospace; color: #71717a; flex-shrink: 0;">
+                FDIR Watchdog: Awaiting telemetry link (192.168.1.1:1883) | Status pending.
+            </div>
+        </div>
+
+        <!-- Right: Real-Time Rolling Voltage Graph -->
+        <div class="panel-right">
+            <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #242424; padding-bottom: 4px; flex-shrink: 0;">
+                <div class="panel-title" style="border-bottom: none; padding-bottom: 0;">Real-Time Voltage Trend (20V Bus & Packs)</div>
+                <div style="display: flex; gap: 8px; font-size: 9px; font-family: monospace;">
+                    <span style="color: #38bdf8;">■ BUS</span>
+                    <span style="color: #22c55e;">■ PACK 1</span>
+                    <span style="color: #f59e0b;">■ PACK 2</span>
+                    <span style="color: #a855f7;">■ PACK 3</span>
+                    <span style="color: #ec4899;">■ PACK 4</span>
+                </div>
+            </div>
+            <div class="canvas-wrap">
+                <canvas id="voltage-chart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div>ORION VI ROVER | 20V 4Ah (5S Li-ion Accumulator) | ERC 2026 MISSION CONTROL</div>
+        <div id="clock-display">UTC: --:--:--</div>
+    </div>
+
+    <script>
+        const syncChannel = new BroadcastChannel('orion_battery_sync_channel');
+        let currentMode = localStorage.getItem('orion_battery_telemetry_mode') || 'actual';
+
+        const canvas = document.getElementById('voltage-chart');
+        const ctx = canvas.getContext('2d');
+        const historyData = {
+            bus: [],
+            b1: [],
+            b2: [],
+            b3: [],
+            b4: []
+        };
+        const MAX_POINTS = 60;
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        const modeBtn = document.getElementById('mode-toggle-btn');
+        function updateModeBtn() {
+            if (currentMode === 'actual') {
+                modeBtn.className = 'mode-btn is-act';
+                modeBtn.textContent = 'MODE: ACTUAL (MQTT)';
+            } else {
+                modeBtn.className = 'mode-btn is-sim';
+                modeBtn.textContent = 'MODE: SIMULATED';
+            }
+        }
+        updateModeBtn();
+
+        modeBtn.addEventListener('click', () => {
+            currentMode = currentMode === 'actual' ? 'simulated' : 'actual';
+            localStorage.setItem('orion_battery_telemetry_mode', currentMode);
+            updateModeBtn();
+            syncChannel.postMessage({ type: 'MODE_CHANGE', mode: currentMode });
+        });
+
+        syncChannel.onmessage = (event) => {
+            if (event.data && event.data.type === 'SYNC') {
+                renderTelemetry(event.data.payload);
+            }
+        };
+
+        // Realtime WebSocket link to gateway
+        function connectWs() {
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${proto}//${window.location.host}/realtime`;
+            const ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                ws.send(JSON.stringify({ sub: '*' }));
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    if (msg && msg.id && msg.id.startsWith('rover.power')) {
+                        handlePoint(msg);
+                    }
+                } catch (_) {}
+            };
+
+            ws.onclose = () => setTimeout(connectWs, 2000);
+        }
+        connectWs();
+
+        const latestVals = {};
+        function handlePoint(pt) {
+            latestVals[pt.id] = pt.value;
+            updateUI();
+        }
+
+        function updateUI() {
+            const hasData = Object.keys(latestVals).length > 0 || currentMode === 'simulated';
+
+            const statusDot = document.querySelector('.status-dot');
+            const stateText = document.getElementById('master-state-text');
+            const alarmText = document.getElementById('alarm-count-text');
+
+            if (!hasData && currentMode === 'actual') {
+                if (statusDot) statusDot.style.background = '#64748b';
+                if (stateText) {
+                    stateText.style.color = '#64748b';
+                    stateText.textContent = 'NOT CONNECTED (AWAITING MQTT 192.168.1.1:1883)';
+                }
+                if (alarmText) {
+                    alarmText.style.color = '#64748b';
+                    alarmText.textContent = 'NO DATA RECEIVED';
+                }
+                document.getElementById('kpi-bus-v').textContent = '--- V';
+                document.getElementById('kpi-bus-i').textContent = '--- A';
+                document.getElementById('kpi-soc').textContent = '--- %';
+
+                for (let i = 1; i <= 4; i++) {
+                    const rowV = document.getElementById(`row-v${i}`);
+                    const rowI = document.getElementById(`row-i${i}`);
+                    const rowT = document.getElementById(`row-t${i}`);
+                    const rowS = document.getElementById(`row-soc${i}`);
+                    const badge = document.getElementById(`badge-m${i}`);
+                    if (rowV) rowV.textContent = '--- V';
+                    if (rowI) rowI.textContent = '--- A';
+                    if (rowT) rowT.textContent = '--- °C';
+                    if (rowS) rowS.textContent = '--- %';
+                    if (badge) {
+                        badge.textContent = '---';
+                        badge.className = 'status-badge unlinked';
+                    }
+                }
+                const fdirBox = document.getElementById('anomaly-summary-box');
+                if (fdirBox) {
+                    fdirBox.textContent = 'FDIR Watchdog: Awaiting telemetry link (192.168.1.1:1883) | Status pending.';
+                    fdirBox.style.color = '#71717a';
+                }
+                drawChart();
+                return;
+            }
+
+            const busV = latestVals['rover.power.bus.voltage'];
+            const busI = latestVals['rover.power.bus.current'];
+
+            document.getElementById('kpi-bus-v').textContent = typeof busV === 'number' ? `${Number(busV).toFixed(2)} V` : '--- V';
+            document.getElementById('kpi-bus-i').textContent = typeof busI === 'number' ? `${Number(busI).toFixed(2)} A` : '--- A';
+
+            let socSum = 0;
+            let socCount = 0;
+
+            for (let i = 1; i <= 4; i++) {
+                const v = latestVals[`rover.power.battery.${i}.v`];
+                const cur = latestVals[`rover.power.battery.${i}.i`];
+                const t = latestVals[`rover.power.battery.${i}.temp`];
+                const soc = latestVals[`rover.power.battery.${i}.soc`];
+
+                const rowV = document.getElementById(`row-v${i}`);
+                const rowI = document.getElementById(`row-i${i}`);
+                const rowT = document.getElementById(`row-t${i}`);
+                const rowS = document.getElementById(`row-soc${i}`);
+                const badge = document.getElementById(`badge-m${i}`);
+
+                if (rowV) rowV.textContent = typeof v === 'number' ? `${Number(v).toFixed(2)} V` : '--- V';
+                if (rowI) rowI.textContent = typeof cur === 'number' ? `${Number(cur).toFixed(2)} A` : '--- A';
+                if (rowT) rowT.textContent = typeof t === 'number' ? `${Number(t).toFixed(1)} °C` : '--- °C';
+                if (rowS) rowS.textContent = typeof soc === 'number' ? `${Number(soc).toFixed(0)} %` : '--- %';
+
+                if (typeof soc === 'number') {
+                    socSum += soc;
+                    socCount++;
+                }
+
+                if (badge) {
+                    if (typeof v !== 'number') {
+                        badge.textContent = '---';
+                        badge.className = 'status-badge unlinked';
+                    } else if (v < 15.0) {
+                        badge.textContent = 'CRIT';
+                        badge.className = 'status-badge crit';
+                    } else if (v < 18.0) {
+                        badge.textContent = 'WARN';
+                        badge.className = 'status-badge warn';
+                    } else {
+                        badge.textContent = 'OK';
+                        badge.className = 'status-badge';
+                    }
+                }
+
+                if (typeof v === 'number') {
+                    recordPoint(`b${i}`, v);
+                }
+            }
+
+            if (socCount > 0) {
+                document.getElementById('kpi-soc').textContent = `${(socSum / socCount).toFixed(1)} %`;
+            } else {
+                document.getElementById('kpi-soc').textContent = '--- %';
+            }
+
+            if (typeof busV === 'number') {
+                recordPoint('bus', busV);
+            }
+
+            if (statusDot) statusDot.style.background = '#22c55e';
+            if (stateText) {
+                stateText.style.color = '#22c55e';
+                stateText.textContent = 'ALL BATTERY MODULES NOMINAL';
+            }
+            if (alarmText) {
+                alarmText.style.color = '#22c55e';
+                alarmText.textContent = '0 ACTIVE EXCEPTIONS';
+            }
+
+            const fdirBox = document.getElementById('anomaly-summary-box');
+            if (fdirBox) {
+                fdirBox.textContent = 'FDIR Watchdog: Voltage delta < 0.25V | Temp < 45°C | All cells balanced.';
+                fdirBox.style.color = '#a1a1aa';
+            }
+
+            drawChart();
+        }
+
+        function recordPoint(key, val) {
+            historyData[key].push(Number(val) || 0);
+            if (historyData[key].length > MAX_POINTS) historyData[key].shift();
+        }
+
+        function drawChart() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const w = canvas.width;
+            const h = canvas.height;
+            const pad = { top: 20, right: 15, bottom: 25, left: 40 };
+
+            const gw = w - pad.left - pad.right;
+            const gh = h - pad.top - pad.bottom;
+
+            // Grid lines (14V to 22V)
+            ctx.strokeStyle = '#222222';
+            ctx.lineWidth = 1;
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px monospace';
+
+            const minV = 14;
+            const maxV = 22;
+            const steps = 4;
+            for (let i = 0; i <= steps; i++) {
+                const y = pad.top + gh - (i / steps) * gh;
+                const v = minV + (i / steps) * (maxV - minV);
+                ctx.beginPath();
+                ctx.moveTo(pad.left, y);
+                ctx.lineTo(w - pad.right, y);
+                ctx.stroke();
+                ctx.fillText(`${v.toFixed(0)}V`, 10, y + 3);
+            }
+
+            function plotSeries(data, color, width) {
+                if (data.length < 2) return;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = width;
+                ctx.beginPath();
+                data.forEach((val, idx) => {
+                    const x = pad.left + (idx / (MAX_POINTS - 1)) * gw;
+                    const clamped = Math.max(minV, Math.min(maxV, val));
+                    const y = pad.top + gh - ((clamped - minV) / (maxV - minV)) * gh;
+                    if (idx === 0) ctx.moveTo(x, y);
+                    else ctx.lineTo(x, y);
+                });
+                ctx.stroke();
+            }
+
+            plotSeries(historyData.b1, '#22c55e', 1.2);
+            plotSeries(historyData.b2, '#f59e0b', 1.2);
+            plotSeries(historyData.b3, '#a855f7', 1.2);
+            plotSeries(historyData.b4, '#ec4899', 1.2);
+            plotSeries(historyData.bus, '#38bdf8', 2.0);
+        }
+
+        // Clock
+        setInterval(() => {
+            document.getElementById('clock-display').textContent = `UTC: ${new Date().toISOString().substring(11, 19)}`;
+        }, 1000);
+
+        if (currentMode === 'simulated') {
+            for (let i = 0; i < 40; i++) {
+                recordPoint('bus', 20.1);
+                recordPoint('b1', 20.12);
+                recordPoint('b2', 20.08);
+                recordPoint('b3', 20.15);
+                recordPoint('b4', 20.05);
+            }
+        }
+        updateUI();
+        drawChart();
+    </script>
+</body>
+</html>
