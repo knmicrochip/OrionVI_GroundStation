@@ -38,6 +38,9 @@
                     try {
                         const point = JSON.parse(event.data);
                         if (!point || !point.id) return;
+                        if (point.met === undefined && typeof window !== 'undefined' && window.OrionTaskManager) {
+                            point.met = window.OrionTaskManager.getMETMilliseconds();
+                        }
 
                         const set = listeners.get(point.id);
                         if (set) {
@@ -112,6 +115,7 @@
                             return data.map(item => ({
                                 id: item.id || key,
                                 utc: item.utc || item.timestamp,
+                                met: item.met !== undefined ? item.met : (typeof window !== 'undefined' && window.OrionTaskManager ? window.OrionTaskManager.getMETMilliseconds() : 0),
                                 value: item.value
                             }));
                         })

@@ -142,10 +142,9 @@ function startServer(port) {
 
         server.listen(port, function () {
             var actualPort = server.address().port;
-            console.log('[Orion Gateway] Hosted at http://localhost:' + actualPort);
-            console.log('[Orion Gateway] History at http://localhost:' + actualPort + '/history');
-            console.log('[Orion Gateway] Realtime WS at ws://localhost:' + actualPort + '/realtime');
-            console.log('[Orion Gateway] Simulation Mode: ' + (bundle.gateway.isSimMode ? 'ACTIVE' : 'OFF (AWAITING MQTT)'));
+            var simStatus = bundle.gateway.isSimMode ? 'Simulation ACTIVE' : 'Awaiting MQTT';
+            console.log('[Orion Gateway] Ready on http://localhost:' + actualPort + ' — ' + simStatus);
+
 
             if (process.argv.includes('--open') || process.env.OPEN_BROWSER === 'true') {
                 var openUrl = 'http://localhost:' + actualPort;

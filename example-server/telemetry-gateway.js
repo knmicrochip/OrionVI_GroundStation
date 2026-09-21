@@ -176,8 +176,10 @@ class TelemetryGateway {
 
         if (!data || typeof data !== 'object') return;
 
+        const normTopic = (topic || '').toLowerCase();
+
         // 1. Power / Battery Topic: Power/feedback or rover/power/telemetry
-        if (topic === 'Power/feedback') {
+        if (normTopic === 'power/feedback' || normTopic === 'power/telemetry') {
             const parseVal = (v) => {
                 if (v === undefined || v === null) return undefined;
                 const num = Number(v);
@@ -218,7 +220,7 @@ class TelemetryGateway {
                 const busV = parseFloat((activeVs.reduce((a, b) => a + b, 0) / activeVs.length).toFixed(2));
                 this.updateTelemetryPoint('rover.power.bus.voltage', busV, now);
             }
-        } else if (topic === 'rover/power/telemetry') {
+        } else if (normTopic === 'rover/power/telemetry' || normTopic === 'rover/power/feedback') {
             if (data.bus_voltage !== undefined) this.updateTelemetryPoint('rover.power.bus.voltage', Number(data.bus_voltage), now);
             if (data.bus_current !== undefined) this.updateTelemetryPoint('rover.power.bus.current', Number(data.bus_current), now);
             if (Array.isArray(data.batteries)) {

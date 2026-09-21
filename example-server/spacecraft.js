@@ -23,8 +23,7 @@ function Spacecraft() {
         this.generateTelemetry();
     }.bind(this), 1000);
 
-    console.log("Example spacecraft launched!");
-    console.log("Press Enter to toggle thruster state.");
+
 
     process.stdin.on('data', function () {
         this.state['prop.thrusters'] =

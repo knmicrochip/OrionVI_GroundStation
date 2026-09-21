@@ -82,45 +82,154 @@
         }
     };
 
+    const DEFAULT_TASK_DURATIONS = {
+        navigation: 2100,
+        science: 2400,
+        maintenance: 1800,
+        probing: 1920
+    };
+
+    function createDefaultTaskState(taskKey) {
+        return {
+            state: 'IDLE', // 'IDLE', 'RUNNING', 'HELD', 'STOPPED'
+            t0: null,
+            limit_s: DEFAULT_TASK_DURATIONS[taskKey] || 2100,
+            hold_s: 0,
+            hold_t: null,
+            stepIndex: 0,
+            stepStartTime: null,
+            steps: {}
+        };
+    }
+
     class TaskClockManager {
         constructor() {
             this.listeners = new Set();
             this.state = this.loadState();
+            this.syncActiveProperties();
             this.timer = setInterval(() => this.tick(), 1000);
         }
 
         loadState() {
+            const defaultTasks = {
+                navigation: createDefaultTaskState('navigation'),
+                science: createDefaultTaskState('science'),
+                maintenance: createDefaultTaskState('maintenance'),
+                probing: createDefaultTaskState('probing')
+            };
+
+            const defaultOverall = {
+                state: 'IDLE',
+                t0: null,
+                hold_s: 0,
+                hold_t: null
+            };
+
             try {
                 const saved = localStorage.getItem('orion_task_clock');
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    // If previously saved as RUNNING, check if run expired or uninitiated
-                    if (parsed.state === 'RUNNING') {
-                        const elapsedMs = parsed.t0 ? (Date.now() - parsed.t0) : Infinity;
-                        if (elapsedMs > (parsed.limit_s || 2400) * 1000 || !parsed.t0) {
-                            parsed.state = 'IDLE';
-                            parsed.t0 = null;
-                            parsed.stepIndex = 0;
-                            parsed.stepStartTime = null;
-                        }
+                    // Migrate legacy single-task format if needed
+                    if (!parsed.tasks) {
+                        parsed.tasks = defaultTasks;
+                        const legacyTask = parsed.task || 'navigation';
+                        parsed.tasks[legacyTask] = {
+                            state: parsed.state || 'IDLE',
+                            t0: parsed.t0 || null,
+                            limit_s: parsed.limit_s || DEFAULT_TASK_DURATIONS[legacyTask] || 2100,
+                            hold_s: parsed.hold_s || 0,
+                            hold_t: parsed.hold_t || null,
+                            stepIndex: parsed.stepIndex || 0,
+                            stepStartTime: parsed.stepStartTime || null,
+                            steps: parsed.steps || {}
+                        };
+                    } else {
+                        // Ensure all 4 task keys exist
+                        Object.keys(defaultTasks).forEach(k => {
+                            if (!parsed.tasks[k]) {
+                                parsed.tasks[k] = defaultTasks[k];
+                            }
+                        });
                     }
+
+                    if (!parsed.overall) {
+                        parsed.overall = defaultOverall;
+                    }
+
+                    // Strict requirement: Timelines must NEVER run from opening the app.
+                    // Always start all missions in IDLE standby at 0 MET upon loading.
+                    Object.keys(parsed.tasks).forEach(k => {
+                        const t = parsed.tasks[k];
+                        t.state = 'IDLE';
+                        t.t0 = null;
+                        t.hold_s = 0;
+                        t.hold_t = null;
+                        t.stepIndex = 0;
+                        t.stepStartTime = null;
+                        t.steps = {};
+                    });
+
+                    parsed.overall = {
+                        state: 'IDLE',
+                        t0: null,
+                        hold_s: 0,
+                        hold_t: null
+                    };
+
+                    if (!parsed.task) parsed.task = 'navigation';
+
                     return parsed;
                 }
             } catch (_) {}
 
             return {
                 task: 'navigation',
-                state: 'IDLE', // 'IDLE', 'RUNNING', 'HELD', 'STOPPED'
+                overall: defaultOverall,
+                tasks: defaultTasks,
+                state: 'IDLE',
                 t0: null,
                 limit_s: 2100,
                 hold_s: 0,
+                hold_t: null,
                 stepIndex: 0,
                 stepStartTime: null,
                 steps: {}
             };
         }
 
+        getActiveTaskState() {
+            if (!this.state.tasks) {
+                this.state.tasks = {};
+            }
+            const k = this.state.task || 'navigation';
+            if (!this.state.tasks[k]) {
+                this.state.tasks[k] = createDefaultTaskState(k);
+            }
+            return this.state.tasks[k];
+        }
+
+        getTaskState(taskKey) {
+            if (!this.state.tasks) return null;
+            const k = (typeof window !== 'undefined' && window.OrionTimelineStore)
+                ? window.OrionTimelineStore.normalizeKey(taskKey)
+                : taskKey;
+            return this.state.tasks[k] || null;
+        }
+
+        syncActiveProperties() {
+            const active = this.getActiveTaskState();
+            this.state.state = active.state;
+            this.state.t0 = active.t0;
+            this.state.limit_s = active.limit_s;
+            this.state.hold_s = active.hold_s;
+            this.state.hold_t = active.hold_t;
+            this.state.stepIndex = active.stepIndex;
+            this.state.stepStartTime = active.stepStartTime;
+            this.state.steps = active.steps;
+        }
+
         saveState() {
+            this.syncActiveProperties();
             try {
                 localStorage.setItem('orion_task_clock', JSON.stringify(this.state));
             } catch (_) {}
@@ -150,206 +259,610 @@
         }
 
         notify() {
+            this.syncActiveProperties();
             this.listeners.forEach(cb => {
                 try { cb(this.state); } catch (_) {}
             });
         }
 
-        getTemplate() {
+        getTemplate(taskKey) {
+            const k = taskKey || this.state.task || 'navigation';
             if (typeof window !== 'undefined' && window.OrionTimelineStore) {
-                return window.OrionTimelineStore.getPlan(this.state.task);
+                return window.OrionTimelineStore.getPlan(k);
             }
-            return TASK_TEMPLATES[this.state.task] || TASK_TEMPLATES.science;
+            return TASK_TEMPLATES[k] || TASK_TEMPLATES.navigation;
         }
 
-        getCurrentStep() {
-            const tpl = this.getTemplate();
-            return tpl.steps[this.state.stepIndex] || null;
+        getCurrentStep(taskKey) {
+            const k = taskKey || this.state.task;
+            const tpl = this.getTemplate(k);
+            const t = this.getTaskState(k);
+            const idx = t ? t.stepIndex : 0;
+            return tpl.steps[idx] || null;
         }
 
-        getNextStep() {
-            const tpl = this.getTemplate();
-            return tpl.steps[this.state.stepIndex + 1] || null;
+        getNextStep(taskKey) {
+            const k = taskKey || this.state.task;
+            const tpl = this.getTemplate(k);
+            const t = this.getTaskState(k);
+            const idx = t ? t.stepIndex : 0;
+            return tpl.steps[idx + 1] || null;
         }
 
-        getRemainingSeconds() {
-            if (this.state.state === 'IDLE' || !this.state.t0) {
-                return this.state.limit_s;
+        getTaskMETMilliseconds(taskKey) {
+            const k = taskKey || this.state.task || 'navigation';
+            const t = (this.state.tasks && this.state.tasks[k]) ? this.state.tasks[k] : this.getActiveTaskState();
+            if (!t || t.state === 'IDLE' || !t.t0) {
+                return 0;
             }
-            if (this.state.state === 'HELD' || this.state.state === 'STOPPED') {
-                const elapsed = Math.floor((this.state.hold_t - this.state.t0) / 1000) - this.state.hold_s;
-                return Math.max(0, this.state.limit_s - elapsed);
+            const limitMs = (t.limit_s || 2100) * 1000;
+            if (t.state === 'HELD' || t.state === 'STOPPED') {
+                const pauseMs = (t.hold_t ? t.hold_t : Date.now()) - t.t0 - (t.hold_s * 1000);
+                return Math.max(0, Math.min(limitMs, pauseMs));
             }
             const now = Date.now();
-            const elapsed = Math.floor((now - this.state.t0) / 1000) - this.state.hold_s;
-            return Math.max(0, this.state.limit_s - elapsed);
+            const elapsedMs = (now - t.t0) - (t.hold_s * 1000);
+            return Math.max(0, Math.min(limitMs, elapsedMs));
         }
 
-        getElapsedSeconds() {
-            if (!this.state.t0) return 0;
-            return Math.max(0, this.state.limit_s - this.getRemainingSeconds());
+        getMETMilliseconds(taskKey) {
+            return this.getTaskMETMilliseconds(taskKey);
         }
 
-        getBudgetUsedPercent() {
-            if (!this.state.limit_s || this.state.limit_s <= 0) return 0;
-            return Math.min(100, Math.max(0, (this.getElapsedSeconds() / this.state.limit_s) * 100));
+        getOverallMETMilliseconds() {
+            const ov = this.state.overall;
+            if (!ov || ov.state === 'IDLE' || !ov.t0) {
+                return 0;
+            }
+            if (ov.state === 'HELD' || ov.state === 'STOPPED') {
+                const pauseMs = (ov.hold_t ? ov.hold_t : Date.now()) - ov.t0 - (ov.hold_s * 1000);
+                return Math.max(0, pauseMs);
+            }
+            const now = Date.now();
+            const elapsedMs = (now - ov.t0) - (ov.hold_s * 1000);
+            return Math.max(0, elapsedMs);
+        }
+
+        getRemainingSeconds(taskKey) {
+            const k = taskKey || this.state.task || 'navigation';
+            const t = (this.state.tasks && this.state.tasks[k]) ? this.state.tasks[k] : this.getActiveTaskState();
+            if (!t || t.state === 'IDLE' || !t.t0) {
+                return t ? t.limit_s : 2100;
+            }
+            const elapsed = Math.floor(this.getTaskMETMilliseconds(k) / 1000);
+            return Math.max(0, t.limit_s - elapsed);
+        }
+
+        getElapsedSeconds(taskKey) {
+            const k = taskKey || this.state.task || 'navigation';
+            return Math.floor(this.getTaskMETMilliseconds(k) / 1000);
+        }
+
+        getBudgetUsedPercent(taskKey) {
+            const k = taskKey || this.state.task || 'navigation';
+            const t = (this.state.tasks && this.state.tasks[k]) ? this.state.tasks[k] : this.getActiveTaskState();
+            if (!t || !t.limit_s || t.limit_s <= 0) return 0;
+            return Math.min(100, Math.max(0, (this.getElapsedSeconds(k) / t.limit_s) * 100));
+        }
+
+        getActiveTaskLimitSeconds() {
+            const t = this.getActiveTaskState();
+            return t ? t.limit_s : 2100;
+        }
+
+        syncTimeConductorForActiveTask(openmct) {
+            const om = openmct || (typeof window !== 'undefined' ? window.openmct : null);
+            if (!om || !om.time) return;
+
+            const t = this.getActiveTaskState();
+            const limitMs = (t.limit_s || 2100) * 1000;
+            const bounds = { start: 0, end: limitMs };
+
+            try {
+                const currentSys = om.time.getTimeSystem();
+                // Only touch conductor bounds and mode if conductor is actively in MET system
+                if (currentSys && currentSys.key === 'met') {
+                    if (t.state === 'RUNNING') {
+                        if (typeof om.time.setClock === 'function') {
+                            om.time.setClock('met-clock', bounds);
+                        }
+                        if (typeof om.time.setMode === 'function') {
+                            om.time.setMode('realtime', bounds);
+                        }
+                        om.time.setBounds(bounds);
+                    } else {
+                        om.time.setBounds(bounds);
+                        if (typeof om.time.setMode === 'function') {
+                            om.time.setMode('fixed', bounds);
+                        }
+                    }
+                } else if (currentSys && currentSys.key === 'utc') {
+                    // On UTC, do NOT force conductor to MET. Update plan body so it reflects state
+                    this.syncPlansForTimeSystem(om, 'utc');
+                }
+            } catch (_) {}
+
+            const met = this.getMETMilliseconds();
+            if (metClockInstance) {
+                metClockInstance.tick(met);
+            }
+            updateMETNowMarkers(met);
+        }
+
+        lockTimelineBounds(openmct) {
+            this.syncTimeConductorForActiveTask(openmct);
+        }
+
+        switchToTaskMET(openmct, taskKey) {
+            const om = openmct || (typeof window !== 'undefined' ? window.openmct : null);
+            if (taskKey) {
+                this.setTask(taskKey, om);
+            }
+            if (!om || !om.time) return;
+
+            const t = this.getActiveTaskState();
+            const limitMs = (t.limit_s || 2100) * 1000;
+            const bounds = { start: 0, end: limitMs };
+
+            try {
+                const currentSys = om.time.getTimeSystem();
+                if (!currentSys || currentSys.key !== 'met') {
+                    om.time.setTimeSystem('met');
+                }
+                if (t.state === 'RUNNING') {
+                    if (typeof om.time.setClock === 'function') {
+                        om.time.setClock('met-clock', bounds);
+                    }
+                    if (typeof om.time.setMode === 'function') {
+                        om.time.setMode('realtime', bounds);
+                    }
+                } else {
+                    if (typeof om.time.setMode === 'function') {
+                        om.time.setMode('fixed', bounds);
+                    }
+                }
+                om.time.setBounds(bounds);
+            } catch (_) {}
+
+            this.syncPlansForTimeSystem(om, 'met');
+            const met = this.getMETMilliseconds();
+            if (metClockInstance) {
+                metClockInstance.tick(met);
+            }
+            updateMETNowMarkers(met);
+        }
+
+        switchToMainUTC(openmct) {
+            const om = openmct || (typeof window !== 'undefined' ? window.openmct : null);
+            if (!om || !om.time) return;
+            try {
+                const currentSys = om.time.getTimeSystem();
+                if (!currentSys || currentSys.key !== 'utc') {
+                    om.time.setTimeSystem('utc');
+                }
+                if (typeof om.time.setClock === 'function') {
+                    om.time.setClock('local', {
+                        start: -30 * 60 * 1000,
+                        end: 30 * 1000
+                    });
+                }
+                if (typeof om.time.setMode === 'function') {
+                    om.time.setMode('realtime', {
+                        start: -30 * 60 * 1000,
+                        end: 30 * 1000
+                    });
+                }
+            } catch (_) {}
+            this.syncPlansForTimeSystem(om, 'utc');
+        }
+
+        async syncPlansForTimeSystem(openmct, timeSystemKey) {
+            const om = openmct || (typeof window !== 'undefined' ? window.openmct : null);
+            if (!om || !om.objects) return;
+            const mapping = {
+                navigation: 'plan_nav',
+                science: 'plan_science',
+                maintenance: 'plan_maintenance',
+                probing: 'plan_probing'
+            };
+            for (const [taskKey, objKey] of Object.entries(mapping)) {
+                try {
+                    const identifier = { namespace: 'orion.taxonomy', key: objKey };
+                    const domainObj = await om.objects.get(identifier);
+                    if (domainObj && typeof window !== 'undefined' && window.generateOpenMctPlanBody) {
+                        const newBody = window.generateOpenMctPlanBody(taskKey, timeSystemKey);
+                        om.objects.mutate(domainObj, 'selectFile.body', newBody);
+                    }
+                } catch (_) {}
+            }
         }
 
         tick() {
-            if (this.state.state === 'RUNNING') {
+            const active = this.getActiveTaskState();
+            const overall = this.state.overall;
+            const isAnyRunning = (active && active.state === 'RUNNING') || (overall && overall.state === 'RUNNING');
+            if (isAnyRunning) {
                 this.notify();
             }
         }
 
-        setTask(taskKey) {
+        setTask(taskKey, openmct) {
             const normKey = (typeof window !== 'undefined' && window.OrionTimelineStore)
                 ? window.OrionTimelineStore.normalizeKey(taskKey)
                 : taskKey;
-            if (this.state.state === 'RUNNING') return; // Don't change active running task
 
             this.state.task = normKey;
-            const tpl = this.getTemplate();
-            this.state.limit_s = tpl.defaultDurationS || 2100;
-            this.state.stepIndex = 0;
-            this.state.steps = {};
+            const t = this.getActiveTaskState();
+            const tpl = this.getTemplate(normKey);
+            if (!t.limit_s) {
+                t.limit_s = tpl.defaultDurationS || 2100;
+            }
+            this.syncActiveProperties();
+            this.saveState();
+
+            this.lockTimelineBounds(openmct);
+            updateMETNowMarkers(this.getMETMilliseconds());
+        }
+
+        setJudgeLimitSeconds(seconds, taskKey) {
+            const t = taskKey ? this.getTaskState(taskKey) : this.getActiveTaskState();
+            if (t) {
+                t.limit_s = Math.max(60, parseInt(seconds, 10) || 2100);
+            }
+            this.syncActiveProperties();
             this.saveState();
         }
 
-        setJudgeLimitSeconds(seconds) {
-            this.state.limit_s = Math.max(60, parseInt(seconds, 10) || 2400);
-            this.saveState();
-        }
-
-        start(openmct) {
+        start(openmct, taskKey) {
             const now = Date.now();
-            this.state.state = 'RUNNING';
-            this.state.t0 = now;
-            this.state.hold_s = 0;
-            this.state.hold_t = null;
-            this.state.stepIndex = 0;
-            this.state.stepStartTime = now;
-            this.state.steps = {};
+            if (taskKey) {
+                this.state.task = taskKey;
+            }
+            const t = this.getActiveTaskState();
+            t.state = 'RUNNING';
+            t.t0 = now;
+            t.hold_s = 0;
+            t.hold_t = null;
+            t.stepIndex = 0;
+            t.stepStartTime = now;
+            t.steps = {};
 
-            const tpl = this.getTemplate();
+            const tpl = this.getTemplate(this.state.task);
             tpl.steps.forEach((s, idx) => {
-                this.state.steps[s.id] = {
+                t.steps[s.id] = {
                     state: idx === 0 ? 'active' : 'pending',
                     startTime: idx === 0 ? now : null,
                     endTime: null
                 };
             });
 
-            this.saveState();
-
-            // Lock Open MCT Time Conductor bounds to [t0 - 60s, t0 + limit_s * 1000 + 60s]
-            if (openmct && openmct.time) {
-                try {
-                    const leadMs = 60 * 1000;
-                    const startMs = now - leadMs;
-                    const endMs = now + (this.state.limit_s * 1000) + leadMs;
-                    openmct.time.setMode('fixed', { start: startMs, end: endMs });
-                } catch (e) {
-                    console.warn('[Task Clock] Conductor lock warning:', e);
+            // Start Overall Mission MET on first start
+            if (!this.state.overall || this.state.overall.state === 'IDLE' || !this.state.overall.t0) {
+                this.state.overall = {
+                    state: 'RUNNING',
+                    t0: now,
+                    hold_s: 0,
+                    hold_t: null
+                };
+            } else if (this.state.overall.state === 'HELD' || this.state.overall.state === 'STOPPED') {
+                if (this.state.overall.hold_t) {
+                    this.state.overall.hold_s += Math.floor((now - this.state.overall.hold_t) / 1000);
+                    this.state.overall.hold_t = null;
                 }
+                this.state.overall.state = 'RUNNING';
             }
 
-            // Re-anchor Open MCT plan bodies with the new t0
-            if (typeof window !== 'undefined' && window.OrionTimelineStore) {
-                window.OrionTimelineStore.reanchorAllPlans(openmct, now);
-            }
-        }
-
-        hold() {
-            if (this.state.state !== 'RUNNING') return;
-            this.state.state = 'HELD';
-            this.state.hold_t = Date.now();
+            this.syncActiveProperties();
             this.saveState();
+
+            // Lock Open MCT Time Conductor bounds to [0, limit_s * 1000] - Always starting at first activity block!
+            this.lockTimelineBounds(openmct);
+
+            if (metClockInstance) {
+                metClockInstance.tick(0);
+            }
+            updateMETNowMarkers(0);
         }
 
-        resume() {
-            if (this.state.state !== 'HELD') return;
+        hold(taskKey) {
+            const k = taskKey || this.state.task;
+            const t = this.getTaskState(k);
+            if (!t || t.state !== 'RUNNING') return;
+            t.state = 'HELD';
+            t.hold_t = Date.now();
+            this.syncActiveProperties();
+            this.saveState();
+
+            this.syncTimeConductorForActiveTask();
+        }
+
+        resume(taskKey) {
+            const k = taskKey || this.state.task;
+            const t = this.getTaskState(k);
+            if (!t || t.state !== 'HELD') return;
             const now = Date.now();
-            const pauseDuration = Math.floor((now - this.state.hold_t) / 1000);
-            this.state.hold_s += pauseDuration;
-            this.state.hold_t = null;
-            this.state.state = 'RUNNING';
-            this.saveState();
-        }
+            const pauseDuration = Math.floor((now - t.hold_t) / 1000);
+            t.hold_s += pauseDuration;
+            t.hold_t = null;
+            t.state = 'RUNNING';
 
-        stop() {
-            this.state.state = 'STOPPED';
-            this.state.hold_t = Date.now();
-            this.saveState();
-        }
-
-        reset(openmct) {
-            this.state.state = 'IDLE';
-            this.state.t0 = null;
-            this.state.hold_s = 0;
-            this.state.hold_t = null;
-            this.state.stepIndex = 0;
-            this.state.stepStartTime = null;
-            this.state.steps = {};
-            this.saveState();
-
-            if (typeof window !== 'undefined' && window.OrionTimelineStore && openmct) {
-                window.OrionTimelineStore.reanchorAllPlans(openmct, Date.now() + 60 * 1000);
+            if (this.state.overall && this.state.overall.state === 'HELD' && this.state.overall.hold_t) {
+                this.state.overall.hold_s += Math.floor((now - this.state.overall.hold_t) / 1000);
+                this.state.overall.hold_t = null;
+                this.state.overall.state = 'RUNNING';
             }
+
+            this.syncActiveProperties();
+            this.saveState();
+
+            this.syncTimeConductorForActiveTask();
         }
 
-        markStepDone() {
-            const tpl = this.getTemplate();
-            const current = tpl.steps[this.state.stepIndex];
+        stop(taskKey) {
+            const k = taskKey || this.state.task;
+            const t = this.getTaskState(k);
+            if (!t) return;
+            t.state = 'STOPPED';
+            t.hold_t = Date.now();
+            this.syncActiveProperties();
+            this.saveState();
+
+            this.syncTimeConductorForActiveTask();
+        }
+
+        reset(openmct, taskKey) {
+            const targetKey = taskKey || this.state.task;
+            const t = this.getTaskState(targetKey) || this.getActiveTaskState();
+            if (t) {
+                t.state = 'IDLE';
+                t.t0 = null;
+                t.hold_s = 0;
+                t.hold_t = null;
+                t.stepIndex = 0;
+                t.stepStartTime = null;
+                t.steps = {};
+            }
+            this.syncActiveProperties();
+            this.saveState();
+
+            this.syncTimeConductorForActiveTask(openmct);
+        }
+
+        resetOverall() {
+            this.state.overall = {
+                state: 'IDLE',
+                t0: null,
+                hold_s: 0,
+                hold_t: null
+            };
+            this.saveState();
+        }
+
+        markStepDone(taskKey) {
+            const k = taskKey || this.state.task;
+            const t = this.getTaskState(k);
+            if (!t) return;
+            const tpl = this.getTemplate(k);
+            const current = tpl.steps[t.stepIndex];
             if (!current) return;
 
             const now = Date.now();
-            if (!this.state.steps[current.id]) this.state.steps[current.id] = {};
-            this.state.steps[current.id].state = 'done';
-            this.state.steps[current.id].endTime = now;
+            if (!t.steps[current.id]) t.steps[current.id] = {};
+            t.steps[current.id].state = 'done';
+            t.steps[current.id].endTime = now;
 
-            if (this.state.stepIndex + 1 < tpl.steps.length) {
-                this.state.stepIndex++;
-                const next = tpl.steps[this.state.stepIndex];
-                this.state.stepStartTime = now;
-                if (!this.state.steps[next.id]) this.state.steps[next.id] = {};
-                this.state.steps[next.id].state = 'active';
-                this.state.steps[next.id].startTime = now;
+            if (t.stepIndex + 1 < tpl.steps.length) {
+                t.stepIndex++;
+                const next = tpl.steps[t.stepIndex];
+                t.stepStartTime = now;
+                if (!t.steps[next.id]) t.steps[next.id] = {};
+                t.steps[next.id].state = 'active';
+                t.steps[next.id].startTime = now;
             } else {
-                this.state.state = 'STOPPED';
+                t.state = 'STOPPED';
+                t.hold_t = now;
             }
 
+            this.syncActiveProperties();
             this.saveState();
         }
 
-        skipStep() {
-            const tpl = this.getTemplate();
-            const current = tpl.steps[this.state.stepIndex];
+        skipStep(taskKey) {
+            const k = taskKey || this.state.task;
+            const t = this.getTaskState(k);
+            if (!t) return;
+            const tpl = this.getTemplate(k);
+            const current = tpl.steps[t.stepIndex];
             if (!current) return;
 
             const now = Date.now();
-            if (!this.state.steps[current.id]) this.state.steps[current.id] = {};
-            this.state.steps[current.id].state = 'skipped';
-            this.state.steps[current.id].endTime = now;
+            if (!t.steps[current.id]) t.steps[current.id] = {};
+            t.steps[current.id].state = 'skipped';
+            t.steps[current.id].endTime = now;
 
-            if (this.state.stepIndex + 1 < tpl.steps.length) {
-                this.state.stepIndex++;
-                const next = tpl.steps[this.state.stepIndex];
-                this.state.stepStartTime = now;
-                if (!this.state.steps[next.id]) this.state.steps[next.id] = {};
-                this.state.steps[next.id].state = 'active';
-                this.state.steps[next.id].startTime = now;
+            if (t.stepIndex + 1 < tpl.steps.length) {
+                t.stepIndex++;
+                const next = tpl.steps[t.stepIndex];
+                t.stepStartTime = now;
+                if (!t.steps[next.id]) t.steps[next.id] = {};
+                t.steps[next.id].state = 'active';
+                t.steps[next.id].startTime = now;
             }
 
+            this.syncActiveProperties();
             this.saveState();
         }
     }
 
+    function updateMETNowMarkers(metMs) {
+        if (typeof document === 'undefined') return;
+        const axes = document.querySelectorAll('.c-timesystem-axis');
+        if (!axes || axes.length === 0) return;
+
+        let boundsStart = 0;
+        let boundsEnd = 2100 * 1000;
+        if (typeof window !== 'undefined' && window.openmct && window.openmct.time) {
+            try {
+                const b = window.openmct.time.getBounds();
+                if (b && typeof b.start === 'number' && typeof b.end === 'number') {
+                    boundsStart = b.start;
+                    boundsEnd = b.end;
+                }
+            } catch (_) {}
+        }
+        const span = boundsEnd - boundsStart;
+        if (span <= 0) return;
+
+        const currentVal = (typeof metMs === 'number') ? metMs : (typeof taskManager !== 'undefined' ? taskManager.getMETMilliseconds() : 0);
+        const clamped = Math.max(boundsStart, Math.min(boundsEnd, currentVal));
+        const fraction = (clamped - boundsStart) / span;
+
+        axes.forEach(axisHolder => {
+            const marker = axisHolder.querySelector('.nowMarker');
+            if (!marker) return;
+            const width = axisHolder.clientWidth;
+            if (!width || width <= 4) return;
+            const leftPx = 1 + fraction * (width - 2);
+            marker.style.left = `${leftPx}px`;
+            marker.classList.remove('hidden');
+        });
+    }
+
+    class METFormat {
+        constructor() {
+            this.key = 'met-format';
+        }
+
+        format(value) {
+            if (value === undefined || value === null || isNaN(value)) {
+                return '+00:00:00';
+            }
+            const isNegative = value < 0;
+            const absSec = Math.floor(Math.abs(value) / 1000);
+            const hours = Math.floor(absSec / 3600);
+            const minutes = Math.floor((absSec % 3600) / 60);
+            const seconds = absSec % 60;
+            const sign = isNegative ? '-' : '+';
+            const hh = String(hours).padStart(2, '0');
+            const mm = String(minutes).padStart(2, '0');
+            const ss = String(seconds).padStart(2, '0');
+            return `${sign}${hh}:${mm}:${ss}`;
+        }
+
+        parse(text) {
+            if (typeof text === 'number') return text;
+            if (!text || typeof text !== 'string') return 0;
+            const clean = text.trim();
+            const sign = clean.startsWith('-') ? -1 : 1;
+            const stripped = clean.replace(/^[+-]/, '').replace(/^MET\s*/i, '').replace(/^T[+-]/i, '');
+            const parts = stripped.split(':').map(Number);
+            let sec = 0;
+            if (parts.length === 3) {
+                sec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+            } else if (parts.length === 2) {
+                sec = parts[0] * 60 + parts[1];
+            } else if (parts.length === 1) {
+                sec = parts[0];
+            }
+            return sign * sec * 1000;
+        }
+
+        validate(text) {
+            if (typeof text === 'number') return true;
+            if (!text || typeof text !== 'string') return false;
+            return /^[+-]?(MET\s*)?(T[+-])?\d{1,2}:\d{2}(:\d{2})?$/i.test(text.trim());
+        }
+    }
+
+    function METTimeSystem() {
+        this.key = 'met';
+        this.name = 'MET';
+        this.cssClass = 'icon-clock';
+        this.timeFormat = 'met-format';
+        this.durationFormat = 'duration';
+        this.isUTCBased = false;
+    }
+
+    class OrionMETClock {
+        constructor(manager) {
+            this.key = 'met-clock';
+            this.name = 'MET Mission Clock';
+            this.description = 'Mission Elapsed Time Clock controlled by Orion Task Manager';
+            this.cssClass = 'icon-clock';
+            this.manager = manager;
+            this.listeners = {};
+            this.lastTick = 0;
+            this.timer = null;
+        }
+
+        currentValue() {
+            if (!this.manager) return 0;
+            return this.manager.getMETMilliseconds();
+        }
+
+        tick(val) {
+            const v = (typeof val === 'number') ? val : this.currentValue();
+            this.lastTick = v;
+            const cbs = this.listeners['tick'] || [];
+            cbs.forEach(cb => {
+                try { cb(v); } catch (e) { console.warn(e); }
+            });
+            updateMETNowMarkers(v);
+        }
+
+        on(event, cb) {
+            if (!this.listeners[event]) this.listeners[event] = [];
+            this.listeners[event].push(cb);
+            if (event === 'tick' && this.listeners[event].length === 1) {
+                this.start();
+            }
+            return () => this.off(event, cb);
+        }
+
+        off(event, cb) {
+            if (!this.listeners[event]) return;
+            this.listeners[event] = this.listeners[event].filter(l => l !== cb);
+            if (event === 'tick' && this.listeners[event].length === 0) {
+                this.stop();
+            }
+        }
+
+        start() {
+            if (this.timer) clearInterval(this.timer);
+            this.timer = setInterval(() => {
+                // Strict Immobility: ONLY emit ticks while actively RUNNING!
+                const active = this.manager ? this.manager.getActiveTaskState() : null;
+                if (active && active.state === 'RUNNING') {
+                    const met = this.manager.getMETMilliseconds();
+                    this.tick(met);
+                }
+            }, 100);
+        }
+
+        stop() {
+            if (this.timer) {
+                clearInterval(this.timer);
+                this.timer = null;
+            }
+        }
+    }
+
     const taskManager = new TaskClockManager();
+    const metClockInstance = new OrionMETClock(taskManager);
 
     function formatTimeRemaining(seconds) {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    function formatMET(ms) {
+        if (!ms || isNaN(ms) || ms < 0) return '+00:00:00';
+        const s = Math.floor(ms / 1000);
+        const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+        const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+        const ss = String(s % 60).padStart(2, '0');
+        return `+${hh}:${mm}:${ss}`;
     }
 
     // Build the Top Persistent Banner HTML & Behavior
@@ -380,37 +893,58 @@
             <div style="display: flex; align-items: center; gap: 8px;">
                 <span style="font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">TASK:</span>
                 <select id="orion-task-select" style="background: #1c1c1c; color: #f8fafc; border: 1px solid #333333; border-radius: 0px; padding: 2px 6px; font-size: 11px; outline: none; cursor: pointer;">
-                    <option value="science">SCIENCE (~40M)</option>
-                    <option value="navigation">NAVIGATION (~35M)</option>
-                    <option value="maintenance">MAINTENANCE (~30M)</option>
-                    <option value="probing">PROBING (~32M)</option>
+                    <option value="science">🔬 SCIENCE (~40M)</option>
+                    <option value="navigation">🧭 NAVIGATION (~35M)</option>
+                    <option value="maintenance">🔧 MAINTENANCE (~30M)</option>
+                    <option value="probing">🎯 PROBING (~32M)</option>
                 </select>
                 <span id="orion-task-state-badge" style="background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 6px; border-radius: 0px; font-weight: 700; font-size: 10px; font-family: monospace;">IDLE</span>
             </div>
 
-            <!-- Middle-Left: Large Judge Countdown Clock -->
+            <!-- Middle-Left: Overall MISSION MET & TASK MET -->
             <div style="display: flex; align-items: center; gap: 12px;">
+                <!-- Overall Mission MET -->
+                <div style="display: flex; flex-direction: column; align-items: flex-start; background: #0c1a2e; border: 1px solid #1e3a8a; padding: 2px 8px; border-radius: 2px;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="font-size: 8px; font-weight: 700; color: #60a5fa; text-transform: uppercase; letter-spacing: 0.5px;">OVERALL MISSION MET:</span>
+                        <span id="orion-mission-met-badge" style="font-size: 8px; background: #1e3a8a; color: #93c5fd; padding: 0 3px; font-weight: 700; font-family: monospace;">STANDBY</span>
+                    </div>
+                    <span id="orion-mission-met-clock" style="font-size: 14px; font-weight: 800; font-family: monospace; color: #38bdf8; letter-spacing: 1px;">+00:00:00</span>
+                </div>
+
+                <!-- Active Task MET -->
+                <div style="display: flex; flex-direction: column; align-items: flex-start; background: #142e1a; border: 1px solid #166534; padding: 2px 8px; border-radius: 2px;">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="font-size: 8px; font-weight: 700; color: #86efac; text-transform: uppercase; letter-spacing: 0.5px;">TASK MET:</span>
+                        <span id="orion-task-met-badge" style="font-size: 8px; background: #166534; color: #bbf7d0; padding: 0 3px; font-weight: 700; font-family: monospace;">IDLE</span>
+                    </div>
+                    <span id="orion-task-met-clock" style="font-size: 14px; font-weight: 800; font-family: monospace; color: #4ade80; letter-spacing: 1px;">+00:00:00</span>
+                </div>
+            </div>
+
+            <!-- Middle-Center: Large Judge Countdown Clock & Budget Bar -->
+            <div style="display: flex; align-items: center; gap: 10px;">
                 <div style="display: flex; flex-direction: column; align-items: center;">
                     <div style="display: flex; align-items: baseline; gap: 4px;">
                         <span style="font-size: 9px; color: #64748b; font-weight: 600;">JUDGE TIME:</span>
-                        <span id="orion-judge-countdown" style="font-size: 18px; font-weight: 800; font-family: monospace; color: #22c55e; letter-spacing: 1px;">40:00</span>
+                        <span id="orion-judge-countdown" style="font-size: 16px; font-weight: 800; font-family: monospace; color: #22c55e; letter-spacing: 1px;">35:00</span>
                     </div>
                 </div>
-                <div style="width: 80px; height: 6px; background: #1c1c1c; border-radius: 0px; overflow: hidden; border: 1px solid #2e2e2e;">
+                <div style="width: 70px; height: 6px; background: #1c1c1c; border-radius: 0px; overflow: hidden; border: 1px solid #2e2e2e;">
                     <div id="orion-budget-progress" style="width: 0%; height: 100%; background: #38bdf8; transition: width 0.3s; border-radius: 0px;"></div>
                 </div>
                 <span id="orion-budget-pct" style="font-family: monospace; font-size: 10px; color: #94a3b8;">0%</span>
             </div>
 
-            <!-- Middle: Active Step & Next Step -->
-            <div style="display: flex; align-items: center; gap: 14px; max-width: 450px;">
-                <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <span style="background: #2563eb; color: #ffffff; padding: 1px 5px; border-radius: 0px; font-weight: 800; font-size: 9px;">NOW</span>
-                    <span id="orion-step-now" style="font-weight: 700; color: #e2e8f0; max-width: 180px; overflow: hidden; text-overflow: ellipsis;">--</span>
+            <!-- Middle-Right: Active Step & Next Step -->
+            <div style="display: flex; align-items: center; gap: 10px; max-width: 320px;">
+                <div style="display: flex; align-items: center; gap: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span style="background: #2563eb; color: #ffffff; padding: 1px 4px; border-radius: 0px; font-weight: 800; font-size: 8px;">NOW</span>
+                    <span id="orion-step-now" style="font-weight: 700; color: #e2e8f0; max-width: 140px; overflow: hidden; text-overflow: ellipsis;">--</span>
                 </div>
-                <div style="display: flex; align-items: center; gap: 6px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                    <span style="background: #27272a; border: 1px solid #3f3f46; color: #cbd5e1; padding: 1px 5px; border-radius: 0px; font-weight: 700; font-size: 9px;">NEXT</span>
-                    <span id="orion-step-next" style="color: #94a3b8; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">--</span>
+                <div style="display: flex; align-items: center; gap: 5px; opacity: 0.75; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                    <span style="background: #27272a; border: 1px solid #3f3f46; color: #cbd5e1; padding: 1px 4px; border-radius: 0px; font-weight: 700; font-size: 8px;">NEXT</span>
+                    <span id="orion-step-next" style="color: #94a3b8; max-width: 120px; overflow: hidden; text-overflow: ellipsis;">--</span>
                 </div>
             </div>
 
@@ -422,6 +956,7 @@
                 <button id="btn-task-done" style="background: #0369a1; color: #ffffff; border: 1px solid #0284c7; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer;">DONE</button>
                 <button id="btn-task-skip" style="background: #27272a; color: #cbd5e1; border: 1px solid #3f3f46; padding: 3px 6px; border-radius: 0px; font-size: 10px; font-weight: 600; cursor: pointer;">SKIP</button>
                 <button id="btn-task-stop" style="background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer;">STOP</button>
+                <button id="btn-task-reset" style="background: #3f1a1a; color: #fca5a5; border: 1px solid #7f1d1d; padding: 3px 6px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">↺ RESET</button>
                 <button id="btn-task-edit" style="background: #1e293b; color: #38bdf8; border: 1px solid #38bdf8; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">⚙ EDIT</button>
             </div>
         `;
@@ -432,6 +967,10 @@
         // Bind Controls
         const select = document.getElementById('orion-task-select');
         const stateBadge = document.getElementById('orion-task-state-badge');
+        const missionMetClock = document.getElementById('orion-mission-met-clock');
+        const missionMetBadge = document.getElementById('orion-mission-met-badge');
+        const taskMetClock = document.getElementById('orion-task-met-clock');
+        const taskMetBadge = document.getElementById('orion-task-met-badge');
         const countdown = document.getElementById('orion-judge-countdown');
         const budgetBar = document.getElementById('orion-budget-progress');
         const budgetPct = document.getElementById('orion-budget-pct');
@@ -444,7 +983,17 @@
         const btnDone = document.getElementById('btn-task-done');
         const btnSkip = document.getElementById('btn-task-skip');
         const btnStop = document.getElementById('btn-task-stop');
+        const btnReset = document.getElementById('btn-task-reset');
         const btnEdit = document.getElementById('btn-task-edit');
+
+        if (btnReset) {
+            btnReset.addEventListener('click', () => {
+                taskManager.reset(openmct);
+                if (openmct && openmct.notifications) {
+                    openmct.notifications.alert('Task reset to IDLE standby (00:00:00).');
+                }
+            });
+        }
 
         if (btnEdit) {
             btnEdit.addEventListener('click', () => {
@@ -455,11 +1004,7 @@
         }
 
         select.addEventListener('change', (e) => {
-            taskManager.setTask(e.target.value);
-            const baseT = taskManager.state.t0 || (Date.now() + 60 * 1000);
-            if (typeof window !== 'undefined' && window.OrionTimelineStore) {
-                window.OrionTimelineStore.reanchorAllPlans(openmct, baseT);
-            }
+            taskManager.setTask(e.target.value, openmct);
         });
 
         btnStart.addEventListener('click', () => {
@@ -500,14 +1045,45 @@
 
         // Update banner UI on state changes
         taskManager.subscribe((state) => {
-            select.value = state.task;
-            select.disabled = state.state === 'RUNNING' || state.state === 'HELD';
+            if (select.value !== state.task) {
+                select.value = state.task;
+            }
+
+            const activeTask = taskManager.getActiveTaskState();
+            const taskRunning = activeTask.state === 'RUNNING';
+            const taskHeld = activeTask.state === 'HELD';
+            const taskStopped = activeTask.state === 'STOPPED';
+
+            select.disabled = taskRunning || taskHeld;
+
+            // Overall Mission MET
+            const overallMs = taskManager.getOverallMETMilliseconds();
+            if (missionMetClock) {
+                missionMetClock.textContent = formatMET(overallMs);
+            }
+            if (missionMetBadge) {
+                const ovState = state.overall ? state.overall.state : 'IDLE';
+                missionMetBadge.textContent = ovState;
+                missionMetBadge.style.background = ovState === 'RUNNING' ? '#166534' : (ovState === 'HELD' ? '#854d0e' : '#1e3a8a');
+                missionMetBadge.style.color = ovState === 'RUNNING' ? '#86efac' : (ovState === 'HELD' ? '#fde68a' : '#93c5fd');
+            }
+
+            // Task MET
+            const taskMs = taskManager.getMETMilliseconds();
+            if (taskMetClock) {
+                taskMetClock.textContent = formatMET(taskMs);
+            }
+            if (taskMetBadge) {
+                taskMetBadge.textContent = activeTask.state;
+                taskMetBadge.style.background = taskRunning ? '#166534' : (taskHeld ? '#854d0e' : (taskStopped ? '#7f1d1d' : '#27272a'));
+                taskMetBadge.style.color = taskRunning ? '#86efac' : (taskHeld ? '#fde68a' : (taskStopped ? '#fca5a5' : '#a1a1aa'));
+            }
 
             const remaining = taskManager.getRemainingSeconds();
             countdown.textContent = formatTimeRemaining(remaining);
 
             // Color coding for urgency: yellow at <=25%, red at <=10%
-            const pctLeft = state.limit_s > 0 ? (remaining / state.limit_s) : 1;
+            const pctLeft = activeTask.limit_s > 0 ? (remaining / activeTask.limit_s) : 1;
             if (pctLeft <= 0.10) {
                 countdown.style.color = '#ef4444'; // Red
             } else if (pctLeft <= 0.25) {
@@ -520,19 +1096,25 @@
             budgetBar.style.width = `${usedPct.toFixed(1)}%`;
             budgetPct.textContent = `${usedPct.toFixed(0)}%`;
 
-            stateBadge.textContent = state.state;
-            if (state.state === 'RUNNING') {
+            stateBadge.textContent = activeTask.state;
+            if (taskRunning) {
                 stateBadge.style.background = '#16a34a';
                 stateBadge.style.color = '#ffffff';
                 btnStart.style.display = 'none';
                 btnHold.style.display = 'inline-block';
                 btnResume.style.display = 'none';
-            } else if (state.state === 'HELD') {
+            } else if (taskHeld) {
                 stateBadge.style.background = '#d97706';
                 stateBadge.style.color = '#ffffff';
                 btnStart.style.display = 'none';
                 btnHold.style.display = 'none';
                 btnResume.style.display = 'inline-block';
+            } else if (taskStopped) {
+                stateBadge.style.background = '#7f1d1d';
+                stateBadge.style.color = '#fca5a5';
+                btnStart.style.display = 'inline-block';
+                btnHold.style.display = 'none';
+                btnResume.style.display = 'none';
             } else {
                 stateBadge.style.background = '#3e3e42';
                 stateBadge.style.color = '#cbd5e1';
@@ -543,7 +1125,7 @@
 
             const curr = taskManager.getCurrentStep();
             const next = taskManager.getNextStep();
-            if (state.state === 'IDLE') {
+            if (activeTask.state === 'IDLE') {
                 stepNow.textContent = 'Awaiting Start (Click ▶ START)';
                 stepNext.textContent = curr ? `${curr.name} (${curr.durationM}m)` : '(None)';
             } else {
@@ -612,12 +1194,13 @@
                                     ${domainObject.name || 'MISSION TIMELINE'}
                                 </span>
                                 <span id="tb-state-badge" style="background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 6px; font-size: 9px; font-family: monospace; font-weight: 800;">IDLE</span>
-                                <span id="tb-time-met" style="font-family: monospace; font-size: 11px; color: #38bdf8; font-weight: 700;">MET T+00:00</span>
+                                <span id="tb-time-mission-met" style="font-family: monospace; font-size: 10px; color: #60a5fa; font-weight: 700; background: #0c1a2e; border: 1px solid #1e3a8a; padding: 1px 5px;">MISSION: +00:00:00</span>
+                                <span id="tb-time-met" style="font-family: monospace; font-size: 11px; color: #4ade80; font-weight: 700; background: #142e1a; border: 1px solid #166534; padding: 1px 5px;">TASK MET T+00:00</span>
                                 <span id="tb-time-rem" style="font-family: monospace; font-size: 10px; color: #94a3b8;">REM: --:--</span>
                             </div>
 
                             <!-- Middle: Active Milestone Indicator -->
-                            <div style="display: flex; align-items: center; gap: 8px; max-width: 360px; overflow: hidden;">
+                            <div style="display: flex; align-items: center; gap: 8px; max-width: 320px; overflow: hidden;">
                                 <span style="background: #2563eb; color: #ffffff; padding: 1px 5px; font-weight: 800; font-size: 9px; border-radius: 0px;">ACTIVE STEP</span>
                                 <span id="tb-step-name" style="font-size: 11px; color: #e2e8f0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
                             </div>
@@ -630,6 +1213,7 @@
                                 <button id="tb-btn-done" style="background: #0369a1; color: #ffffff; border: 1px solid #0284c7; padding: 3px 8px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">✓ DONE</button>
                                 <button id="tb-btn-skip" style="background: #27272a; color: #cbd5e1; border: 1px solid #3f3f46; padding: 3px 6px; font-size: 10px; font-weight: 600; cursor: pointer; text-transform: uppercase;">SKIP</button>
                                 <button id="tb-btn-stop" style="background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; text-transform: uppercase;">⏹ STOP</button>
+                                <button id="tb-btn-reset" style="background: #3f1a1a; color: #fca5a5; border: 1px solid #7f1d1d; padding: 3px 8px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">↺ RESET</button>
                                 
                                 <select id="tb-task-select" style="background: #141414; color: #ffffff; border: 1px solid #333333; padding: 2px 6px; font-size: 10px; outline: none; cursor: pointer; margin-left: 4px;">
                                     <option value="navigation">🧭 Navigation</option>
@@ -667,6 +1251,7 @@
                         // Wire controls
                         const led = toolbar.querySelector('#tb-state-led');
                         const badge = toolbar.querySelector('#tb-state-badge');
+                        const missionMetEl = toolbar.querySelector('#tb-time-mission-met');
                         const met = toolbar.querySelector('#tb-time-met');
                         const rem = toolbar.querySelector('#tb-time-rem');
                         const stepName = toolbar.querySelector('#tb-step-name');
@@ -677,13 +1262,15 @@
                         const btnDone = toolbar.querySelector('#tb-btn-done');
                         const btnSkip = toolbar.querySelector('#tb-btn-skip');
                         const btnStop = toolbar.querySelector('#tb-btn-stop');
+                        const btnReset = toolbar.querySelector('#tb-btn-reset');
                         const selectTask = toolbar.querySelector('#tb-task-select');
                         const btnEdit = toolbar.querySelector('#tb-btn-edit');
 
-                        selectTask.value = taskManager.state.task || currentTask;
+                        const activeTaskKey = currentTask;
+                        selectTask.value = currentTask;
 
                         selectTask.addEventListener('change', (e) => {
-                            taskManager.setTask(e.target.value);
+                            taskManager.setTask(e.target.value, openmct);
                             const targetKey = `plan_${e.target.value === 'navigation' ? 'nav' : e.target.value}`;
                             if (window.location.hash.includes('plan_')) {
                                 window.location.hash = `#/browse/orion.taxonomy:${targetKey}`;
@@ -691,59 +1278,77 @@
                         });
 
                         btnStart.addEventListener('click', () => {
-                            taskManager.start(openmct);
+                            const taskToStart = selectTask.value || activeTaskKey;
+                            taskManager.start(openmct, taskToStart);
                             if (openmct && openmct.notifications) {
-                                openmct.notifications.info(`Mission Timeline Started: ${taskManager.getTemplate().name}`);
+                                openmct.notifications.info(`Mission Timeline Started: ${taskManager.getTemplate(taskToStart).name}`);
                             }
                         });
 
                         btnHold.addEventListener('click', () => {
-                            taskManager.hold();
+                            const taskToHold = selectTask.value || activeTaskKey;
+                            taskManager.hold(taskToHold);
                             if (openmct && openmct.notifications) {
                                 openmct.notifications.alert('Timeline paused on judge HOLD.');
                             }
                         });
 
                         btnResume.addEventListener('click', () => {
-                            taskManager.resume();
+                            const taskToResume = selectTask.value || activeTaskKey;
+                            taskManager.resume(taskToResume);
                             if (openmct && openmct.notifications) {
                                 openmct.notifications.info('Timeline resumed.');
                             }
                         });
 
                         btnDone.addEventListener('click', () => {
-                            const curr = taskManager.getCurrentStep();
-                            taskManager.markStepDone();
+                            const taskToDone = selectTask.value || activeTaskKey;
+                            const curr = taskManager.getCurrentStep(taskToDone);
+                            taskManager.markStepDone(taskToDone);
                             if (curr && openmct && openmct.notifications) {
                                 openmct.notifications.info(`Step completed: ${curr.name}`);
                             }
                         });
 
                         btnSkip.addEventListener('click', () => {
-                            const curr = taskManager.getCurrentStep();
-                            taskManager.skipStep();
+                            const taskToSkip = selectTask.value || activeTaskKey;
+                            const curr = taskManager.getCurrentStep(taskToSkip);
+                            taskManager.skipStep(taskToSkip);
                             if (curr && openmct && openmct.notifications) {
                                 openmct.notifications.info(`Step skipped: ${curr.name}`);
                             }
                         });
 
                         btnStop.addEventListener('click', () => {
-                            taskManager.stop();
+                            const taskToStop = selectTask.value || activeTaskKey;
+                            taskManager.stop(taskToStop);
                             if (openmct && openmct.notifications) {
                                 openmct.notifications.alert('Mission timeline stopped.');
                             }
                         });
 
+                        if (btnReset) {
+                            btnReset.addEventListener('click', () => {
+                                const taskToReset = selectTask.value || activeTaskKey;
+                                taskManager.reset(openmct, taskToReset);
+                                if (openmct && openmct.notifications) {
+                                    openmct.notifications.alert('Timeline reset to IDLE standby (00:00:00).');
+                                }
+                            });
+                        }
+
                         btnEdit.addEventListener('click', () => {
                             if (typeof window.openOrionTimelineEditor === 'function') {
-                                window.openOrionTimelineEditor(selectTask.value || taskManager.state.task);
+                                window.openOrionTimelineEditor(selectTask.value || activeTaskKey);
                             }
                         });
 
                         function updateToolbar(state) {
-                            const isRunning = state.state === 'RUNNING';
-                            const isHeld = state.state === 'HELD';
-                            const isStopped = state.state === 'STOPPED';
+                            const targetTaskKey = selectTask.value || activeTaskKey;
+                            const taskState = taskManager.getTaskState(targetTaskKey) || taskManager.getActiveTaskState();
+                            const isRunning = taskState.state === 'RUNNING';
+                            const isHeld = taskState.state === 'HELD';
+                            const isStopped = taskState.state === 'STOPPED';
 
                             if (isRunning) {
                                 badge.textContent = 'RUNNING';
@@ -783,19 +1388,26 @@
                                 btnResume.style.display = 'none';
                             }
 
-                            if (isRunning || isHeld || isStopped) {
-                                const elapsed = taskManager.getElapsedSeconds();
-                                const remS = taskManager.getRemainingSeconds();
-                                const elM = Math.floor(elapsed / 60);
-                                const elS = elapsed % 60;
-                                met.textContent = `MET T+${String(elM).padStart(2, '0')}:${String(elS).padStart(2, '0')}`;
-                                rem.textContent = `REM: ${formatTimeRemaining(remS)}`;
-                            } else {
-                                met.textContent = 'MET T+00:00';
-                                rem.textContent = `REM: ${formatTimeRemaining(taskManager.getTemplate().defaultDurationS)}`;
+                            // Overall Mission MET
+                            const overallMs = taskManager.getOverallMETMilliseconds();
+                            if (missionMetEl) {
+                                missionMetEl.textContent = `MISSION: ${formatMET(overallMs)}`;
                             }
 
-                            const curr = taskManager.getCurrentStep();
+                            // Task MET & Remaining
+                            if (isRunning || isHeld || isStopped) {
+                                const taskMetMs = taskManager.getTaskMETMilliseconds(targetTaskKey);
+                                const remS = taskManager.getRemainingSeconds(targetTaskKey);
+                                const elM = Math.floor(taskMetMs / 60000);
+                                const elS = Math.floor((taskMetMs % 60000) / 1000);
+                                met.textContent = `TASK MET T+${String(elM).padStart(2, '0')}:${String(elS).padStart(2, '0')}`;
+                                rem.textContent = `REM: ${formatTimeRemaining(remS)}`;
+                            } else {
+                                met.textContent = 'TASK MET T+00:00';
+                                rem.textContent = `REM: ${formatTimeRemaining(taskState.limit_s || 2100)}`;
+                            }
+
+                            const curr = taskManager.getCurrentStep(targetTaskKey);
                             if (!isRunning && !isHeld && !isStopped) {
                                 stepName.textContent = 'Awaiting Initiation (Click ▶ START)';
                             } else {
@@ -887,9 +1499,128 @@
     // Orion Task Clock Plugin export
     function OrionTaskClockPlugin() {
         return function install(openmct) {
+            // Register MET format, time system and clock into Open MCT
+            try {
+                openmct.telemetry.addFormat(new METFormat());
+            } catch (_) {}
+            try {
+                openmct.time.addTimeSystem(new METTimeSystem());
+            } catch (_) {}
+            try {
+                openmct.time.addClock(metClockInstance);
+            } catch (_) {}
+
+            // Strict Timeline Rule:
+            // Timelines must ALWAYS begin at the beginning of the first activity block (start: 0)
+            try {
+                if (openmct.time && typeof openmct.time.tick === 'function') {
+                    const originalTimeTick = openmct.time.tick.bind(openmct.time);
+                    openmct.time.tick = function (timestamp) {
+                        const currentSys = openmct.time.getTimeSystem();
+                        if (currentSys && currentSys.key === 'met') {
+                            const active = taskManager ? taskManager.getActiveTaskState() : null;
+                            const limitMs = (taskManager ? taskManager.getActiveTaskLimitSeconds() : 2100) * 1000;
+                            const fixedBounds = { start: 0, end: limitMs };
+                            if (!active || active.state !== 'RUNNING') {
+                                try {
+                                    openmct.time.bounds(fixedBounds);
+                                } catch (_) {}
+                                return;
+                            }
+                            try {
+                                openmct.time.bounds(fixedBounds);
+                            } catch (_) {}
+                            return;
+                        }
+                        return originalTimeTick(timestamp);
+                    };
+                }
+            } catch (_) {}
+
+            // Automatic time system routing:
+            // All graphs, displays, tables, logs, and operating mode tabs run on UTC Real Time Clock.
+            // Only dedicated task plan views run on MET.
+            const handleRoute = () => {
+                const hash = window.location.hash || '';
+                let targetTask = null;
+
+                // Match only dedicated task plan objects (not display layouts like disp_nav or disp_science!)
+                if (hash.includes(':plan_sci') || hash.endsWith('plan_science')) {
+                    targetTask = 'science';
+                } else if (hash.includes(':plan_maint') || hash.endsWith('plan_maintenance')) {
+                    targetTask = 'maintenance';
+                } else if (hash.includes(':plan_prob') || hash.endsWith('plan_probing')) {
+                    targetTask = 'probing';
+                } else if (hash.includes(':plan_nav') || hash.endsWith('plan_nav')) {
+                    targetTask = 'navigation';
+                }
+
+                if (targetTask && taskManager) {
+                    taskManager.switchToTaskMET(openmct, targetTask);
+                } else if (taskManager) {
+                    // All displays, operating mode tabs, master timeline, graphs, tables, and logs:
+                    taskManager.switchToMainUTC(openmct);
+                }
+
+                const met = taskManager ? taskManager.getMETMilliseconds() : 0;
+                updateMETNowMarkers(met);
+            };
+
+            if (openmct.router) {
+                openmct.router.on('change:path', handleRoute);
+            }
+            if (typeof window !== 'undefined') {
+                window.addEventListener('hashchange', handleRoute);
+            }
+
+            // Sync plan representations if operator toggles Time Conductor system manually
+            if (openmct.time) {
+                openmct.time.on('timeSystem', (newSys) => {
+                    if (newSys && newSys.key === 'met') {
+                        taskManager.lockTimelineBounds(openmct);
+                        taskManager.syncPlansForTimeSystem(openmct, 'met');
+                    } else if (newSys && newSys.key === 'utc') {
+                        taskManager.syncPlansForTimeSystem(openmct, 'utc');
+                    }
+                });
+            }
+
             installTopBanner(openmct);
             installTimelineInteractiveView(openmct);
             installTimelineActions(openmct);
+
+            // Register dedicated Mission Gantt View (MET) for Plan objects
+            try {
+                openmct.objectViews.addProvider({
+                    key: 'orion.gantt.view',
+                    name: 'Mission Gantt Chart (MET)',
+                    cssClass: 'icon-timeline',
+                    priority: function () {
+                        return 900;
+                    },
+                    canView: function (domainObject) {
+                        return domainObject.type === 'plan';
+                    },
+                    view: function (domainObject) {
+                        return {
+                            show: function (element) {
+                                renderGanttView(element, domainObject, openmct);
+                            },
+                            destroy: function (element) {
+                                if (element && typeof element._cleanup === 'function') {
+                                    element._cleanup();
+                                }
+                            }
+                        };
+                    }
+                });
+            } catch (_) {}
+
+            // Periodic sync to keep .nowMarker aligned on DOM views
+            setInterval(() => {
+                const met = taskManager.getMETMilliseconds();
+                updateMETNowMarkers(met);
+            }, 250);
         };
     }
 
@@ -1121,68 +1852,40 @@
         });
 
         btnStart.addEventListener('click', () => {
-            if (taskManager.state.state === 'RUNNING' && taskManager.state.task !== taskKey) {
-                if (openmct && openmct.notifications) {
-                    openmct.notifications.alert(`Another task (${taskManager.state.task.toUpperCase()}) is currently RUNNING.`);
-                }
-                return;
-            }
-            taskManager.setTask(taskKey);
-            taskManager.start(openmct);
+            taskManager.start(openmct, taskKey);
             if (openmct && openmct.notifications) {
                 openmct.notifications.info(`Task Started: ${tpl.name}`);
             }
         });
 
         btnHold.addEventListener('click', () => {
-            if (taskManager.state.task === taskKey) {
-                taskManager.hold();
-            }
+            taskManager.hold(taskKey);
         });
 
         btnResume.addEventListener('click', () => {
-            if (taskManager.state.task === taskKey) {
-                taskManager.resume();
-            }
+            taskManager.resume(taskKey);
         });
 
         btnDone.addEventListener('click', () => {
-            if (taskManager.state.task === taskKey) {
-                taskManager.markStepDone();
-            }
+            taskManager.markStepDone(taskKey);
         });
 
         btnSkip.addEventListener('click', () => {
-            if (taskManager.state.task === taskKey) {
-                taskManager.skipStep();
-            }
+            taskManager.skipStep(taskKey);
         });
 
         btnReset.addEventListener('click', () => {
-            if (taskManager.state.task === taskKey || taskManager.state.state !== 'RUNNING') {
-                taskManager.setTask(taskKey);
-                taskManager.reset();
-            }
+            taskManager.reset(openmct, taskKey);
         });
 
         function updateGantt() {
-            const state = taskManager.state;
-            const isThisTask = state.task === taskKey;
-            const isRunning = isThisTask && state.state === 'RUNNING';
-            const isHeld = isThisTask && state.state === 'HELD';
-            const isStopped = isThisTask && state.state === 'STOPPED';
+            const taskState = taskManager.getTaskState(taskKey) || taskManager.getActiveTaskState();
+            const isRunning = taskState.state === 'RUNNING';
+            const isHeld = taskState.state === 'HELD';
+            const isStopped = taskState.state === 'STOPPED';
 
             // State Badge & Buttons
-            if (!isThisTask && state.state === 'RUNNING') {
-                stateBadge.textContent = `BUSY (${state.task.toUpperCase()})`;
-                stateBadge.style.background = '#27272a';
-                stateBadge.style.borderColor = '#3f3f46';
-                stateBadge.style.color = '#71717a';
-                stateLed.style.background = '#64748b';
-                btnStart.style.display = 'inline-block';
-                btnHold.style.display = 'none';
-                btnResume.style.display = 'none';
-            } else if (isRunning) {
+            if (isRunning) {
                 stateBadge.textContent = 'RUNNING';
                 stateBadge.style.background = '#14532d';
                 stateBadge.style.borderColor = '#166534';
@@ -1221,11 +1924,12 @@
             }
 
             // Time Readouts
-            if (isThisTask && (isRunning || isHeld || isStopped)) {
-                const elapsedS = taskManager.getElapsedSeconds();
-                const remS = taskManager.getRemainingSeconds();
-                const elM = Math.floor(elapsedS / 60);
-                const elS = elapsedS % 60;
+            const elapsedS = taskManager.getElapsedSeconds(taskKey);
+            const remS = taskManager.getRemainingSeconds(taskKey);
+            const elM = Math.floor(elapsedS / 60);
+            const elS = elapsedS % 60;
+
+            if (isRunning || isHeld || isStopped) {
                 timeMet.textContent = `MET T+${String(elM).padStart(2, '0')}:${String(elS).padStart(2, '0')}`;
                 timeRem.textContent = `REM: ${formatTimeRemaining(remS)}`;
 
@@ -1240,20 +1944,18 @@
             }
 
             // Step states
-            const activeStepIdx = isThisTask ? state.stepIndex : -1;
-            const currentStep = isThisTask ? taskManager.getCurrentStep() : null;
+            const activeStepIdx = taskState.stepIndex;
+            const currentStep = taskManager.getCurrentStep(taskKey);
 
             computedSteps.forEach((step, idx) => {
                 const bar = container.querySelector(`#gantt-step-${step.id}`);
                 if (!bar) return;
 
-                const stepData = (isThisTask && state.steps && state.steps[step.id]) || {};
+                const stepData = (taskState.steps && taskState.steps[step.id]) || {};
                 let status = 'pending';
-                if (isThisTask) {
-                    if (stepData.state) status = stepData.state;
-                    else if (idx < activeStepIdx) status = 'done';
-                    else if (idx === activeStepIdx) status = 'active';
-                }
+                if (stepData.state) status = stepData.state;
+                else if (idx < activeStepIdx) status = 'done';
+                else if (idx === activeStepIdx) status = 'active';
 
                 const styleConfig = SWIMLANE_COLORS[step.swimlane] || { border: '#52525b', bg: '#27272a33', text: '#e4e4e7' };
                 const labelSpan = bar.querySelector('.step-label');
@@ -1330,6 +2032,11 @@
     if (typeof window !== 'undefined') {
         window.OrionTaskClockPlugin = OrionTaskClockPlugin;
         window.OrionTaskManager = taskManager;
+        window.OrionMETClock = OrionMETClock;
+        window.OrionMETClockInstance = metClockInstance;
+        window.METFormat = METFormat;
+        window.METTimeSystem = METTimeSystem;
+        window.updateMETNowMarkers = updateMETNowMarkers;
     }
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = OrionTaskClockPlugin;

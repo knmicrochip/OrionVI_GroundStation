@@ -47,9 +47,73 @@
             border-radius: 0px !important;
         }
 
-        body, #app, .l-shell, .l-shell__main-container, .l-shell__main-view {
+        html, body {
+            width: 100vw;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
             background-color: #121212 !important;
             color: #d4d4d4 !important;
+        }
+
+        #orion-top-task-banner {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+        }
+
+        #app, #openmct-app {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            min-height: 0;
+            position: relative;
+            overflow: hidden;
+            background-color: #121212 !important;
+            color: #d4d4d4 !important;
+        }
+
+        .l-shell, .l-shell__main-container, .l-shell__main-view {
+            background-color: #121212 !important;
+            color: #d4d4d4 !important;
+        }
+
+        body.has-task-banner .l-shell {
+            top: 0 !important;
+        }
+
+        /* Native Open MCT Plan & Timeline Styles */
+        .c-plan, .c-timeline-holder {
+            width: 100% !important;
+            height: 100% !important;
+            flex: 1 1 auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+        }
+
+        .c-plan__contents {
+            flex: 1 1 auto !important;
+            min-height: 0 !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+        }
+
+        .orion-in-timeline-body {
+            flex: 1 1 auto !important;
+            height: calc(100% - 38px) !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            position: relative !important;
+            overflow: hidden !important;
+            display: flex !important;
+            flex-direction: column !important;
         }
 
         .l-shell__head {
@@ -407,34 +471,61 @@
             try { openmct.install(openmct.plugins.Timelist()); } catch (e) { console.warn('[Open MCT] Timelist install error:', e); }
         }
 
-        // Time Conductor Configuration
+        // Install Orion Task Clock & Timeline Engine (registers MET time system, format and met-clock)
+        openmct.install(OrionTaskClockPlugin());
+
+        // Time Conductor Configuration: All graphs, displays, tables, and logs run on UTC Real Time Clock; MET options available for task timelines
         if (typeof openmct.plugins.Conductor === 'function') {
             openmct.install(openmct.plugins.Conductor({
                 menuOptions: [
                     {
-                        name: "Realtime",
+                        name: "Realtime (UTC)",
                         timeSystem: "utc",
                         clock: "local",
                         clockOffsets: {
-                            start: -15 * 60 * 1000,
-                            end: 30 * 60 * 1000
+                            start: -30 * 60 * 1000,
+                            end: 30 * 1000
                         }
                     },
                     {
-                        name: "Fixed",
+                        name: "Fixed (UTC)",
                         timeSystem: "utc",
                         bounds: {
-                            start: Date.now() - 15 * 60 * 1000,
-                            end: Date.now() + 30 * 60 * 1000
+                            subFormat: "YYYY-MM-DD",
+                            start: Date.now() - 30 * 60 * 1000,
+                            end: Date.now()
+                        }
+                    },
+                    {
+                        name: "Realtime (MET)",
+                        timeSystem: "met",
+                        clock: "met-clock",
+                        clockOffsets: {
+                            start: 0,
+                            end: 2100 * 1000
+                        }
+                    },
+                    {
+                        name: "Fixed (MET)",
+                        timeSystem: "met",
+                        bounds: {
+                            start: 0,
+                            end: 2100 * 1000
                         }
                     }
                 ]
             }));
         }
 
-        openmct.time.setClock('local');
-        openmct.time.setClockOffsets({ start: -15 * 60 * 1000, end: 30 * 60 * 1000 });
+        // Real Time Clock Initialization: All graphs, telemetry displays, tables, and logs run on UTC Realtime
         openmct.time.setTimeSystem('utc');
+        openmct.time.setClock('local');
+        if (typeof openmct.time.setMode === 'function') {
+            openmct.time.setMode('realtime', {
+                start: -30 * 60 * 1000,
+                end: 30 * 1000
+            });
+        }
 
         // Set Orion Branding (upper panel app logo)
         if (typeof openmct.branding === 'function') {
@@ -454,9 +545,6 @@
         // Install Orion VI Taxonomy & Normalized Telemetry Providers
         openmct.install(OrionDictionaryPlugin());
         openmct.install(OrionTelemetryPlugin());
-
-        // Install Orion Task Clock & Timeline Engine
-        openmct.install(OrionTaskClockPlugin());
 
         // Install Teleoperation, Gamepad & Perception Plugins
         openmct.install(OrionGamepadPlugin());
@@ -501,7 +589,8 @@
         }));
 
         function startApp() {
-            openmct.start();
+            const appEl = document.getElementById('app') || document.getElementById('openmct-app');
+            openmct.start(appEl);
             // Default view: Native Open MCT OPERATING MODES Tabs view
             if (!window.location.hash || window.location.hash === '#/' || window.location.hash === '#/browse') {
                 window.location.hash = '#/browse/orion.taxonomy:modes_tab';

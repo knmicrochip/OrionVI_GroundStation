@@ -8,7 +8,6 @@ if (-not (Test-Path $electron)) {
 }
 
 if (Test-Path $electron) {
-    Write-Host "[Orion VI Ground Station] Launching Electron (Zero Installation Required)..." -ForegroundColor Green
     Start-Process -FilePath $electron -ArgumentList "`"$app`""
 } else {
     Write-Error "[ERROR] Pre-bundled Electron binary not found in node_modules."

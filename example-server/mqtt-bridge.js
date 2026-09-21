@@ -13,7 +13,7 @@ function createMqttBridge(options) {
     const router = express.Router();
 
     let brokerUrl = options.brokerUrl || process.env.MQTT_BROKER_URL || 'mqtt://192.168.1.1:1883';
-    const defaultTopics = ['Power/feedback', 'Power/#', 'rover/#', 'rover/log', 'rover/logs', 'rover/logs/#', 'rover/syslog'];
+    const defaultTopics = ['Power/feedback', 'power/feedback', 'Power/#', 'power/#', 'rover/#', 'rover/power/#', 'rover/log', 'rover/logs', 'rover/logs/#', 'rover/syslog'];
     if (process.env.MQTT_LOG_TOPIC && !defaultTopics.includes(process.env.MQTT_LOG_TOPIC)) {
         defaultTopics.push(process.env.MQTT_LOG_TOPIC);
     }
@@ -95,8 +95,14 @@ function createMqttBridge(options) {
             broadcastStatus();
         });
 
+        let _lastMqttErrorLog = 0;
         mqttClient.on('error', (err) => {
-            console.warn(`[MQTT Bridge] Broker connection error (${brokerUrl}): ${err.message}`);
+            const now = Date.now();
+            // Only log once per 30 seconds to avoid terminal spam when rover is offline
+            if (now - _lastMqttErrorLog > 30000) {
+                _lastMqttErrorLog = now;
+                console.warn(`[MQTT Bridge] Broker unreachable (${brokerUrl}): ${err.message} — retrying...`);
+            }
             isConnected = false;
             broadcastStatus();
         });

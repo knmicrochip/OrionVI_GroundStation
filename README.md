@@ -71,10 +71,20 @@ Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, p
 
 ---
 
-### 5. Native Open MCT Timelines, Interactive Controls & In-App Configurator
-Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls, strict initiation standby gating, and zero-code in-app timeline customization:
-* **Timeline Initiation Standby Gating**: Timelines remain strictly in standby `IDLE` state upon application launch, page reload, and reset. Milestone activities do **not** run until explicitly initiated by clicking `▶ START`. While uninitiated, the Time Conductor cursor rests cleanly before the start line at `MET T+00:00` with activities parked ahead in standby buffer (`Awaiting Start`).
-* **Interactive Mission Timeline Controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`)**: Operators can start and control competition runs directly from the timeline view header or persistent top banner. Starting anchors `t0 = Date.now()`, automatically locks Open MCT Time Conductor bounds to the task duration, and dynamically re-anchors Gantt activities in real time.
+### 5. Native Open MCT Timelines, Pure Per-Mission MET & In-App Configurator
+Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls, zero-drift activity anchors, pure Mission Elapsed Time (MET) coordination, per-task independent MET timers, separate overall mission MET, and zero-code in-app timeline customization:
+* **Zero Execution on App Opening**: When opening the application or refreshing, no mission or timeline runs automatically. All 4 competition tasks (`Navigation`, `Science`, `Maintenance`, `Probing`) and the overall mission strictly initialize in `IDLE` standby with `metMs = 0`, cursor anchored at `0` (the first activity block), bounds `{ start: 0, end: limitMs }`, and conductor mode `'fixed'`.
+* **Independent Per-Mission MET Starting on Operator Start**:
+  * Each competition task maintains its own independent Mission Elapsed Time (MET) clock starting from `0` only when the operator explicitly clicks `▶ START` for that specific task.
+  * Starting Navigation runs Navigation MET from 0 while Science, Maintenance, and Probing remain in `IDLE` standby at 0.
+  * Starting Science runs Science MET from 0 while Navigation continues its own clock independently.
+  * Pausing (`⏸ HOLD`) or stopping (`⏹ STOP`) freezes that task's MET and cursor instantaneously with zero drift.
+  * Resetting (`↺ RESET`) returns that task to `IDLE` standby with MET `0` and anchors the cursor at the beginning of the first block.
+* **Separate Overall Mission MET**: Overall Mission MET runs continuously across the rover operation session from the moment the first task is initiated. It persists independently across task switches, pauses, and resets. Both **OVERALL MISSION MET** (`+HH:mm:ss`) and active **TASK MET** (`+HH:mm:ss`) are displayed side-by-side on the top HUD banner and timeline toolbars.
+* **Pure MET Master & Task Timelines**: All timelines (both individual task plans and the master `timeline_mission` / "Full Mission Master Time Strip") operate on Mission Elapsed Time (`timeSystem: 'met'`), permanently anchored at the beginning of the first activity block (`bounds.start = 0`). The view does **not** slide or drift off the screen as time progresses.
+* **Dual Telemetry Domain Hints**: All telemetry points expose both `utc` (domain 1) and `met` (domain 2) hints in `telemetry.values`, completely preventing Open MCT metadata mismatch warnings across any active time system.
+* **Clean Terminal & Diagnostic Logging**: All boilerplate meta-messages (such as `"Launching Electron - Zero Installation Required..."`) have been eliminated from `start.bat`, `start.ps1`, and startup scripts. Electron console filtering suppresses internal framework noise, deprecation warnings, and library duplicate logs. Only relevant messages for the operator and diagnostics (`[Orion Gateway]`, `[Rover]`, warnings, and errors) are displayed in the terminal.
+* **Interactive Mission Timeline Controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`)**: Operators can start and control competition runs directly from the timeline view header or persistent top banner. Starting anchors the task's `t0 = Date.now()`, automatically locks Open MCT Time Conductor bounds to the task duration, and dynamically re-anchors Gantt activities in real time.
 * **In-App Milestone & Activity Editor Modal (`⚙ EDIT TIMELINE`)**: A full-featured aerospace configuration dialog accessible from any timeline or the top banner. Operators can add new milestones, modify activity names, edit durations in minutes, reassign subsystem swimlanes (`Drive`, `Arm`, `Science`, `Safety`, `Power`), pick colors, and reorder steps. Changes are saved to `localStorage` and immediately update Open MCT Gantt charts and Time Strips without reloading. Includes a 1-click `↺ RESET TO ERC DEFAULTS` button.
 * **In-App Timeline Preset Switcher**: Seamlessly switch between ERC 2026 competition tasks:
   * 🧭 **Navigation Traverse Plan** (~35 min)
@@ -83,7 +93,7 @@ Full integration with native NASA Open MCT timeline engines, featuring interacti
   * 🎯 **Probing Task Plan** (~32 min)
 * **Native Master Time Strip (`type: 'time-strip'`)**: Stacks multi-domain mission plans (`plan_nav`, `plan_science`) and live telemetry plots (`plot_bus_voltage`, `plot_wheel_currents`) along a unified, synchronized time axis with a moving real-time Conductor cursor.
 * **Native Plan Layouts (`type: 'plan'`)**: High-performance canvas-rendered swimlanes (`Safety`, `Drive`, `Science`, `Arm`) with NASA-STD-3001 aerospace color coding, clickable activities, and full Conductor bounds synchronization.
-* **Universal Expanded View "X" Close Button**: All "Large View" expansions, flexible layout previews, modals, and popup inspectors reliably close immediately upon clicking the top-right "X" button, clicking the backdrop, or pressing `Escape`.
+* **Universal Expanded View "X" Close Button**: All "Large View" expansions, flexible layout previews, modals, and popup inspectors open cleanly and reliably close immediately upon clicking the top-right "X" button, clicking the backdrop, or pressing `Escape`.
 
 <p align="center">
   <img src="docs/images/screenshot-timeline-idle.png" alt="Timeline Standby State Awaiting Initiation" width="49%" />

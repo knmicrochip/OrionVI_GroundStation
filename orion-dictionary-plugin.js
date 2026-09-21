@@ -86,22 +86,23 @@
         }
     };
 
-    function generateOpenMctPlanBody(taskKey, baseTime) {
+    function generateOpenMctPlanBody(taskKey, timeSystemKey) {
+        const isUTC = timeSystemKey === 'utc';
+
         if (typeof window !== 'undefined' && window.OrionTimelineStore) {
-            return window.OrionTimelineStore.generatePlanBody(taskKey, baseTime);
+            return window.OrionTimelineStore.generatePlanBody(taskKey, isUTC ? 'utc' : 'met');
         }
         const template = TASK_PLANS_DATA[taskKey] || TASK_PLANS_DATA.nav;
-        let t0;
-        if (typeof baseTime === 'number' && baseTime > 0) {
-            t0 = baseTime;
-        } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
-            t0 = window.OrionTaskManager.state.t0;
-        } else {
-            // Standby state: timeline not initiated yet. Anchor 60s in future so cursor is before start line
-            t0 = Date.now() + 60 * 1000;
-        }
         const body = {};
-        let cursor = t0;
+        let cursor = 0; // Pure Mission Elapsed Time (MET) starting strictly at 0
+        if (isUTC) {
+            const taskState = (typeof window !== 'undefined' && window.OrionTaskManager)
+                ? window.OrionTaskManager.getTaskState(taskKey)
+                : null;
+            // When in UTC (e.g. NAV/AUTONOMY layout): if started, anchor at t0; if IDLE, anchor at (now - 5m)
+            // so plan activities are visible across the current 30-minute realtime window!
+            cursor = (taskState && taskState.t0) ? taskState.t0 : (Date.now() - 5 * 60 * 1000);
+        }
 
         template.steps.forEach(step => {
             const start = cursor;
@@ -494,8 +495,7 @@
                         else if (key === 'plan_maintenance') taskKey = 'maintenance';
                         else if (key === 'plan_probing') taskKey = 'probing';
 
-                        const activeT0 = (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.t0);
-                        const body = generateOpenMctPlanBody(taskKey, activeT0);
+                        const body = generateOpenMctPlanBody(taskKey);
 
                         const planObj = {
                             identifier: identifier,
@@ -624,6 +624,12 @@
                                         name: 'Timestamp',
                                         format: 'utc',
                                         hints: { domain: 1 }
+                                    },
+                                    {
+                                        key: 'met',
+                                        name: 'MET',
+                                        format: 'met-format',
+                                        hints: { domain: 2 }
                                     }
                                 ]
                             }
@@ -1397,6 +1403,7 @@
 
     if (typeof window !== 'undefined') {
         window.OrionDictionaryPlugin = OrionDictionaryPlugin;
+        window.generateOpenMctPlanBody = generateOpenMctPlanBody;
     }
     if (typeof module !== 'undefined' && module.exports) {
         module.exports = OrionDictionaryPlugin;

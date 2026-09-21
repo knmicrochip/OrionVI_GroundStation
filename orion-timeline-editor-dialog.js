@@ -166,19 +166,20 @@
             }
         }
 
-        generatePlanBody(taskKey, baseTime) {
+        generatePlanBody(taskKey, timeSystemKey) {
             const plan = this.getPlan(taskKey);
-            let t0;
-            if (typeof baseTime === 'number' && baseTime > 0) {
-                t0 = baseTime;
-            } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
-                t0 = window.OrionTaskManager.state.t0;
-            } else {
-                // Standby state: timeline not initiated yet. Anchor 60s in future so cursor is before start line
-                t0 = Date.now() + 60 * 1000;
-            }
             const body = {};
-            let cursor = t0;
+            const isUTC = timeSystemKey === 'utc';
+
+            let cursor = 0; // Pure Mission Elapsed Time (MET) starting strictly at 0
+            if (isUTC) {
+                const taskState = (typeof window !== 'undefined' && window.OrionTaskManager)
+                    ? window.OrionTaskManager.getTaskState(taskKey)
+                    : null;
+                // When in UTC (e.g. NAV/AUTONOMY layout): if started, anchor at t0; if IDLE, anchor at (now - 5m)
+                // so plan activities are visible across the current 30-minute realtime window!
+                cursor = (taskState && taskState.t0) ? taskState.t0 : (Date.now() - 5 * 60 * 1000);
+            }
 
             plan.steps.forEach(step => {
                 const durationMs = (parseFloat(step.durationM) || 1) * 60 * 1000;
@@ -204,7 +205,7 @@
             return body;
         }
 
-        async reanchorAllPlans(openmct, baseTime) {
+        async reanchorAllPlans(openmct) {
             if (!openmct || !openmct.objects) return;
             const mapping = {
                 navigation: 'plan_nav',
@@ -213,21 +214,15 @@
                 probing: 'plan_probing'
             };
 
-            let t0;
-            if (typeof baseTime === 'number' && baseTime > 0) {
-                t0 = baseTime;
-            } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
-                t0 = window.OrionTaskManager.state.t0;
-            } else {
-                t0 = Date.now() + 60 * 1000;
-            }
+            const currentSys = openmct.time ? openmct.time.getTimeSystem() : null;
+            const timeSysKey = currentSys ? currentSys.key : 'utc';
 
             for (const [taskKey, objKey] of Object.entries(mapping)) {
                 try {
                     const identifier = { namespace: 'orion.taxonomy', key: objKey };
                     const domainObj = await openmct.objects.get(identifier);
                     if (domainObj) {
-                        const newBody = this.generatePlanBody(taskKey, t0);
+                        const newBody = this.generatePlanBody(taskKey, timeSysKey);
                         openmct.objects.mutate(domainObj, 'selectFile.body', newBody);
                     }
                 } catch (err) {
@@ -504,19 +499,15 @@
         btnSave.addEventListener('click', async () => {
             storeInstance.updatePlan(activeKey, currentPlan);
 
-            // If active task in TaskManager matches, update limit
+            // Update limit for this task in TaskManager
             if (window.OrionTaskManager) {
                 const totalM = currentPlan.steps.reduce((sum, s) => sum + (parseFloat(s.durationM) || 0), 0);
-                if (window.OrionTaskManager.state && window.OrionTaskManager.state.task === activeKey) {
-                    window.OrionTaskManager.state.limit_s = totalM * 60;
-                    window.OrionTaskManager.saveState();
-                }
+                window.OrionTaskManager.setJudgeLimitSeconds(totalM * 60, activeKey);
             }
 
             // Re-anchor Open MCT plan objects
             if (window.openmct) {
-                const baseT = (window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.t0) || Date.now();
-                await storeInstance.reanchorAllPlans(window.openmct, baseT);
+                await storeInstance.reanchorAllPlans(window.openmct);
 
                 if (window.openmct.notifications) {
                     window.openmct.notifications.info(`Timeline "${currentPlan.name}" successfully updated and synchronized.`);
