@@ -62,14 +62,31 @@ Integrated **Flexible Layout** tab (`rover_cameras_flex`) within Rover Displays.
   <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Standalone Camera Popout Window" width="38%" />
 </p>
 
----
-
-### 4. 5GHz RF Comms & Competition Task Timeline
-Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput) alongside ERC competition mission phase timers and Gantt task clocks.
+### 4. 5GHz RF Comms & Dedicated Diagnostics
+Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, packet loss) with real-time health indicator and detached popout diagnostics window (`antenna-details.html`).
 
 <p align="center">
-  <img src="docs/images/screenshot-antenna-details.png" alt="5GHz RF Comms Diagnostics" width="49%" />
-  <img src="docs/images/screenshot-gantt-nav-running.png" alt="ERC Navigation Task Gantt Clock" width="49%" />
+  <img src="docs/images/screenshot-antenna-details.png" alt="5GHz RF Comms Diagnostics" width="75%" />
+</p>
+
+---
+
+### 5. Native Open MCT Timelines, Time Strips & Task Plans
+Full integration with native NASA Open MCT timeline engines:
+* **Native Master Time Strip (`type: 'time-strip'`)**: Stacks multi-domain mission plans (`plan_nav`, `plan_science`) and live telemetry plots (`plot_bus_voltage`, `plot_wheel_currents`) along a unified, synchronized time axis with a moving real-time Conductor cursor.
+* **Native Plan Layouts (`type: 'plan'`)**: High-performance canvas-rendered swimlanes (`Safety`, `Drive`, `Science`, `Arm`) with NASA-STD-3001 aerospace color coding, clickable activities, and full Conductor bounds synchronization.
+* **Display Layout Integration**: Embedded plan views within single-screen operating modes (`NAV / AUTONOMY`, `SCIENCE`, `MANIPULATOR`, `MAINTENANCE`) alongside LAD tables and telemetry graphs.
+* **Activity Time List (`type: 'timelist'`)**: Time-ordered tabular schedule showing active, past, and upcoming tasks with automatic count-up / count-down timers.
+
+![Native Open MCT Master Time Strip](docs/images/screenshot-openmct-time-strip.png)
+
+<p align="center">
+  <img src="docs/images/screenshot-openmct-plan-timeline.png" alt="Native Open MCT Plan Timeline" width="49%" />
+  <img src="docs/images/screenshot-modes-nav-plan.png" alt="Embedded Plan in Nav Operating Mode" width="49%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Open MCT Activity Time List" width="75%" />
 </p>
 
 ---
@@ -214,6 +231,9 @@ $env:TEST_RUN="test_battery"; & "node_modules\electron\dist\electron.exe" .
 
 # Verify 10-camera flexible layout & reconnect watchdog countdown
 $env:TEST_RUN="test_cameras"; & "node_modules\electron\dist\electron.exe" .
+
+# Verify native Open MCT Plan layouts, Time Strips & Timelists
+$env:TEST_RUN="test_timeline"; & "node_modules\electron\dist\electron.exe" .
 
 # Full end-to-end telemetry ingestion test
 $env:TEST_RUN="e2e"; & "node_modules\electron\dist\electron.exe" .

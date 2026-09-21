@@ -103,6 +103,9 @@ graph TD
         P_LAD[LAD Tables]
         P_Flex[Flexible Layouts]
         P_Tabs[Tabs View]
+        P_Plan[PlanLayout / type: plan]
+        P_Timeline[Timeline / type: time-strip]
+        P_Timelist[Timelist / type: timelist]
     end
 
     subgraph OrionPlugins [Custom Orion Mission Plugins]
@@ -122,7 +125,7 @@ graph TD
 ```
 
 ### 3.2 Taxonomy & Object Tree (`orion-dictionary-plugin.js`)
-The rover telemetry points are exposed as native Open MCT **Domain Objects** arranged in a hierarchical tree:
+The rover telemetry points and mission operations are exposed as native Open MCT **Domain Objects** arranged in a hierarchical tree:
 * `Orion VI Rover` (Root Folder)
   * `Power System`: Bus Voltage, Bus Current, Battery 1..4 Voltages, Battery Temperatures, SoC.
   * `Drive & Mobility`: Left/Right Speeds, Wheel Current, Steering Angles.
@@ -130,6 +133,38 @@ The rover telemetry points are exposed as native Open MCT **Domain Objects** arr
   * `Navigation & Pose`: Pitch, Roll, Heading, Lat/Long Coordinates, Obstacle Distance.
   * `Science Bay`: Carousel Index, Drill Depth, Moisture Sensor, Spectrometer Status.
   * `Communications`: 5GHz RSSI, SNR, Downlink Throughput, Uplink Throughput.
+* `Task Plans & Timelines` (Root Folder)
+  * `Full Mission Master Time Strip` (`type: time-strip`): Synchronized master time strip combining navigation and science plans with motor current and bus voltage telemetry plots.
+  * `Navigation Traverse Plan` (`type: plan`): Native swimlane plan layout with safety and drive autonomy milestones.
+  * `Science Task Plan` (`type: plan`): Surface sample acquisition, coring, and spectrometry activity plan.
+  * `Maintenance Task Plan` (`type: plan`): ERC panel servicing sequence.
+  * `Probing Task Plan` (`type: plan`): Geological cache search and stowing steps.
+  * `Navigation Activities Time List` (`type: timelist`): Chronological execution table with count-up/count-down timers.
+* `Displays` (Root Folder)
+  * `OPERATING MODES (TABS)`: Single-screen operations tabs, including `TIMELINE`.
+  * Display Layouts (`disp_overview`, `disp_cameras`, `disp_teleop`, `disp_nav`, `disp_manipulator`, `disp_science`, `disp_maintenance`, `disp_safety`).
+
+### 3.3 Native Open MCT Timelines & Time Strips Architecture
+The timeline system uses native Open MCT plugins rather than standalone HTML widgets:
+1. **Time Strip (`openmct.plugins.Timeline`)**:
+   - Acts as a container (`type: 'time-strip'`) that composes multiple plans and telemetry plots.
+   - All stacked child objects share a common synchronized time axis with a moving vertical current-time indicator.
+2. **Plan Layout (`openmct.plugins.PlanLayout`)**:
+   - Provides `type: 'plan'`. Activities are provided via `selectFile.body` grouped into categories (`Safety`, `Drive`, `Science`, `Arm`).
+   - Dynamically bounds-checked against the Time Conductor (`viewBounds.start`, `viewBounds.end`) and renders responsive activity blocks.
+3. **Time List (`openmct.plugins.Timelist`)**:
+   - Provides `type: 'timelist'`. Formats milestone activities into a sortable table with relative offsets (`+HH:MM:SS` past, `-HH:MM:SS` upcoming).
+
+![Native Open MCT Master Time Strip](images/screenshot-openmct-time-strip.png)
+
+<p align="center">
+  <img src="images/screenshot-openmct-plan-timeline.png" alt="Native Open MCT Plan Timeline" width="49%" />
+  <img src="images/screenshot-modes-nav-plan.png" alt="Embedded Plan in Nav Operating Mode" width="49%" />
+</p>
+
+<p align="center">
+  <img src="images/screenshot-openmct-timelist.png" alt="Native Open MCT Time List" width="75%" />
+</p>
 
 ---
 

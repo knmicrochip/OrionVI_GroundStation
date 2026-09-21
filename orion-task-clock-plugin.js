@@ -512,40 +512,6 @@
     function OrionTaskClockPlugin() {
         return function install(openmct) {
             installTopBanner(openmct);
-
-            // Register Task Plan Object Types
-            openmct.types.addType('orion.task_plan', {
-                name: 'Orion Task Plan',
-                description: 'Structured ERC competition task execution plan',
-                cssClass: 'icon-plan'
-            });
-
-            // Register Aerospace Gantt View for Task Plans
-            openmct.objectViews.addProvider({
-                key: 'orion-task-gantt-view',
-                name: 'Aerospace Gantt Timeline',
-                cssClass: 'icon-plan',
-                canView: function (domainObject) {
-                    return domainObject.type === 'orion.task_plan' ||
-                           (domainObject.identifier && domainObject.identifier.key && domainObject.identifier.key.startsWith('plan_'));
-                },
-                priority: function () {
-                    return 1000;
-                },
-                view: function (domainObject) {
-                    let viewContainer = null;
-                    return {
-                        show: function (container) {
-                            viewContainer = container;
-                            renderGanttView(container, domainObject, openmct);
-                        },
-                        destroy: function (container) {
-                            const c = container || viewContainer;
-                            if (c && c._cleanup) c._cleanup();
-                        }
-                    };
-                }
-            });
         };
     }
 

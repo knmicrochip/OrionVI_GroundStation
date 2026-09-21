@@ -28,6 +28,93 @@
 (function () {
     const TAXONOMY_NAMESPACE = 'orion.taxonomy';
 
+    const TASK_PLANS_DATA = {
+        nav: {
+            id: 'navigation',
+            name: 'Navigation Traverse Plan',
+            steps: [
+                { id: 'nav_arm_gnss_init', name: 'Arm Transit Stow & RTAB-Map Init', durationM: 2, swimlane: 'Safety', color: '#ef4444' },
+                { id: 'nav_wp1', name: 'Waypoint 1 (Traverse & Tag)', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'nav_wp2', name: 'Waypoint 2 (Obstacle Avoidance)', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'nav_wp3', name: 'Waypoint 3 (Rocker Compliance Test)', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'nav_wp4', name: 'Waypoint 4 (Crater Rim)', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'nav_wp5', name: 'Waypoint 5 (Final Target)', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'nav_recovery_reserve', name: 'Recovery Reserve Window', durationM: 5, swimlane: 'Safety', color: '#f59e0b' },
+                { id: 'nav_slack', name: 'Mission Halt & Parking', durationM: 3, swimlane: 'Safety', color: '#64748b' }
+            ]
+        },
+        science: {
+            id: 'science',
+            name: 'Science Task Plan',
+            steps: [
+                { id: 'sci_safety_link', name: 'Safety & Link Verification', durationM: 2, swimlane: 'Safety', color: '#ef4444' },
+                { id: 'sci_drive_site_a', name: 'Drive to Site A', durationM: 6, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'sci_sample_1', name: 'Surface Sample 1 Acquisition', durationM: 5, swimlane: 'Science', color: '#a855f7' },
+                { id: 'sci_drive_site_b', name: 'Drive to Site B', durationM: 5, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'sci_sample_2', name: 'Surface Sample 2 Acquisition', durationM: 5, swimlane: 'Science', color: '#a855f7' },
+                { id: 'sci_deep_sample', name: 'Deep Stratum Sample Collection', durationM: 8, swimlane: 'Science', color: '#a855f7' },
+                { id: 'sci_photos', name: 'On-Board Laboratory Inspection Photos', durationM: 4, swimlane: 'Science', color: '#a855f7' },
+                { id: 'sci_stow', name: 'Arm & Science Tool Stow', durationM: 3, swimlane: 'Arm', color: '#f97316' },
+                { id: 'sci_slack', name: 'Contingency Slack & Debrief', durationM: 2, swimlane: 'Safety', color: '#64748b' }
+            ]
+        },
+        maintenance: {
+            id: 'maintenance',
+            name: 'Maintenance Task Plan',
+            steps: [
+                { id: 'maint_approach', name: 'Approach ERC Maintenance Panel', durationM: 4, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'maint_switches', name: 'Toggle Power & Safety Switches', durationM: 6, swimlane: 'Arm', color: '#f97316' },
+                { id: 'maint_electrical', name: 'Electrical Voltage Measurement', durationM: 5, swimlane: 'Arm', color: '#f97316' },
+                { id: 'maint_em_lock', name: 'Release Electro-Magnetic Lock', durationM: 4, swimlane: 'Arm', color: '#f97316' },
+                { id: 'maint_rj45', name: 'Connect RJ-45 Ethernet Cable', durationM: 6, swimlane: 'Arm', color: '#f97316' },
+                { id: 'maint_photos', name: 'Document Completed Panel State', durationM: 3, swimlane: 'Science', color: '#a855f7' },
+                { id: 'maint_backoff', name: 'Back Off & Stow Manipulator', durationM: 2, swimlane: 'Drive', color: '#22c55e' }
+            ]
+        },
+        probing: {
+            id: 'probing',
+            name: 'Probing Task Plan',
+            steps: [
+                { id: 'probe_search_1', name: 'Search & Locate Probe 1', durationM: 6, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'probe_stow_1', name: 'Pick & Stow Probe 1', durationM: 4, swimlane: 'Arm', color: '#f97316' },
+                { id: 'probe_search_2', name: 'Search & Locate Probe 2', durationM: 6, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'probe_stow_2', name: 'Pick & Stow Probe 2', durationM: 4, swimlane: 'Arm', color: '#f97316' },
+                { id: 'probe_search_3', name: 'Search & Locate Probe 3', durationM: 6, swimlane: 'Drive', color: '#22c55e' },
+                { id: 'probe_stow_3', name: 'Pick & Stow Probe 3', durationM: 4, swimlane: 'Arm', color: '#f97316' },
+                { id: 'probe_confirm', name: 'Confirm 3 Probes Aboard', durationM: 2, swimlane: 'Science', color: '#a855f7' }
+            ]
+        }
+    };
+
+    function generateOpenMctPlanBody(taskKey, baseTime) {
+        const template = TASK_PLANS_DATA[taskKey] || TASK_PLANS_DATA.nav;
+        const t0 = (typeof baseTime === 'number' && baseTime > 0) ? baseTime : (Date.now() - 5 * 60 * 1000);
+        const body = {};
+        let cursor = t0;
+
+        template.steps.forEach(step => {
+            const start = cursor;
+            const end = cursor + (step.durationM * 60 * 1000);
+            cursor = end;
+
+            const category = step.swimlane || 'General';
+            if (!body[category]) {
+                body[category] = [];
+            }
+
+            body[category].push({
+                name: step.name,
+                start: start,
+                end: end,
+                type: category,
+                color: step.color || '#38bdf8',
+                textColor: '#ffffff'
+            });
+        });
+
+        return body;
+    }
+
     const MEASUREMENTS = [
         // Chassis / Drive
         { key: 'rover.drive.speed.fl', name: 'Wheel Speed FL', category: 'chassis_drive', unit: 'RPM', min: -100, max: 100 },
@@ -222,19 +309,35 @@
         'safety': { name: 'Safety', location: 'rover' },
         'base_station': { name: 'Base Station', location: 'root' },
         'task_plans': {
-            name: 'Task Plans',
+            name: 'Task Plans & Timelines',
             location: 'root',
-            children: ['plan_science', 'plan_nav', 'plan_maintenance', 'plan_probing']
+            children: [
+                'timeline_mission',
+                'timeline_nav',
+                'timeline_science',
+                'plan_nav',
+                'plan_science',
+                'plan_maintenance',
+                'plan_probing',
+                'timelist_nav'
+            ]
         },
-        'plan_science': { name: 'Science Task Plan', location: 'task_plans', type: 'orion.task_plan' },
-        'plan_nav': { name: 'Navigation Traverse Plan', location: 'task_plans', type: 'orion.task_plan' },
-        'plan_maintenance': { name: 'Maintenance Task Plan', location: 'task_plans', type: 'orion.task_plan' },
-        'plan_probing': { name: 'Probing Task Plan', location: 'task_plans', type: 'orion.task_plan' },
+        'timeline_mission': { name: 'Full Mission Master Time Strip', location: 'task_plans', type: 'time-strip' },
+        'timeline_nav': { name: 'Navigation Traverse Time Strip', location: 'task_plans', type: 'time-strip' },
+        'timeline_science': { name: 'Science Operations Time Strip', location: 'task_plans', type: 'time-strip' },
+        'plan_nav': { name: 'Navigation Traverse Plan', location: 'task_plans', type: 'plan' },
+        'plan_science': { name: 'Science Task Plan', location: 'task_plans', type: 'plan' },
+        'plan_maintenance': { name: 'Maintenance Task Plan', location: 'task_plans', type: 'plan' },
+        'plan_probing': { name: 'Probing Task Plan', location: 'task_plans', type: 'plan' },
+        'timelist_nav': { name: 'Navigation Activities Time List', location: 'task_plans', type: 'timelist' },
         'displays': {
             name: 'Displays',
             location: 'root',
             children: [
                 'modes_tab',
+                'timeline_mission',
+                'timeline_nav',
+                'timeline_science',
                 'disp_overview',
                 'disp_cameras',
                 'disp_teleop',
@@ -358,6 +461,106 @@
                     const key = identifier.key;
                     if (dynamicObjects.has(key)) {
                         return Promise.resolve(dynamicObjects.get(key));
+                    }
+
+                    // Native Open MCT Plans
+                    if (key === 'plan_nav' || key === 'plan_science' || key === 'plan_maintenance' || key === 'plan_probing') {
+                        let taskKey = 'nav';
+                        if (key === 'plan_science') taskKey = 'science';
+                        else if (key === 'plan_maintenance') taskKey = 'maintenance';
+                        else if (key === 'plan_probing') taskKey = 'probing';
+
+                        const activeT0 = (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.t0);
+                        const body = generateOpenMctPlanBody(taskKey, activeT0);
+
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: FOLDERS[key] ? FOLDERS[key].name : key,
+                            type: 'plan',
+                            location: `${TAXONOMY_NAMESPACE}:task_plans`,
+                            selectFile: {
+                                body: body
+                            },
+                            configuration: {
+                                clipActivityNames: true
+                            }
+                        });
+                    }
+
+                    // Native Open MCT Time Strips (master mission & domain timelines)
+                    if (key === 'timeline_mission') {
+                        const comp = [
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plan_nav' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plan_science' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plot_bus_voltage' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plot_wheel_currents' }
+                        ];
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'Full Mission Master Time Strip',
+                            type: 'time-strip',
+                            location: `${TAXONOMY_NAMESPACE}:task_plans`,
+                            composition: comp,
+                            configuration: {}
+                        });
+                    }
+
+                    if (key === 'timeline_nav') {
+                        const comp = [
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plan_nav' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plot_wheel_currents' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plot_nav_pitch_roll' }
+                        ];
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'Navigation Traverse Time Strip',
+                            type: 'time-strip',
+                            location: `${TAXONOMY_NAMESPACE}:task_plans`,
+                            composition: comp,
+                            configuration: {}
+                        });
+                    }
+
+                    if (key === 'timeline_science') {
+                        const comp = [
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plan_science' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plot_tensometer' }
+                        ];
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'Science Operations Time Strip',
+                            type: 'time-strip',
+                            location: `${TAXONOMY_NAMESPACE}:task_plans`,
+                            composition: comp,
+                            configuration: {}
+                        });
+                    }
+
+                    // Native Open MCT Time List
+                    if (key === 'timelist_nav') {
+                        const comp = [
+                            { namespace: TAXONOMY_NAMESPACE, key: 'plan_nav' }
+                        ];
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'Navigation Activities Time List',
+                            type: 'timelist',
+                            location: `${TAXONOMY_NAMESPACE}:task_plans`,
+                            composition: comp,
+                            configuration: {
+                                sortOrderIndex: 0,
+                                futureEventsIndex: 1,
+                                futureEventsDurationIndex: 0,
+                                futureEventsDuration: 30,
+                                currentEventsIndex: 1,
+                                currentEventsDurationIndex: 0,
+                                currentEventsDuration: 30,
+                                pastEventsIndex: 1,
+                                pastEventsDurationIndex: 0,
+                                pastEventsDuration: 30,
+                                filter: ''
+                            }
+                        });
                     }
 
                     // 1. Folder objects
@@ -730,7 +933,8 @@
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_science' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_maintenance' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' }
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'timeline_mission' }
                             ]
                         });
                     }
@@ -1047,7 +1251,14 @@
             openmct.composition.addProvider({
                 appliesTo: function (domainObject) {
                     return domainObject.identifier.namespace === TAXONOMY_NAMESPACE &&
-                           (domainObject.type === 'folder' || domainObject.type === 'tabs' || domainObject.type === 'layout' || domainObject.type === 'flexible-layout' || domainObject.type === 'LadTable' || domainObject.type === 'telemetry.plot.overlay');
+                           (domainObject.type === 'folder' ||
+                            domainObject.type === 'tabs' ||
+                            domainObject.type === 'layout' ||
+                            domainObject.type === 'flexible-layout' ||
+                            domainObject.type === 'LadTable' ||
+                            domainObject.type === 'telemetry.plot.overlay' ||
+                            domainObject.type === 'time-strip' ||
+                            domainObject.type === 'timelist');
                 },
                 load: function (domainObject) {
                     const key = domainObject.identifier.key;
@@ -1060,7 +1271,8 @@
                             { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
                             { namespace: TAXONOMY_NAMESPACE, key: 'disp_science' },
                             { namespace: TAXONOMY_NAMESPACE, key: 'disp_maintenance' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' }
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'timeline_mission' }
                         ]);
                     }
                     const folder = FOLDERS[key];

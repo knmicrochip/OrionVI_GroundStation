@@ -280,6 +280,15 @@
         if (typeof openmct.plugins.Filters === 'function') {
             try { openmct.install(openmct.plugins.Filters(['table', 'telemetry.plot.overlay'])); } catch (_) {}
         }
+        if (typeof openmct.plugins.PlanLayout === 'function') {
+            try { openmct.install(openmct.plugins.PlanLayout({ creatable: true })); } catch (e) { console.warn('[Open MCT] PlanLayout install error:', e); }
+        }
+        if (typeof openmct.plugins.Timeline === 'function') {
+            try { openmct.install(openmct.plugins.Timeline()); } catch (e) { console.warn('[Open MCT] Timeline install error:', e); }
+        }
+        if (typeof openmct.plugins.Timelist === 'function') {
+            try { openmct.install(openmct.plugins.Timelist()); } catch (e) { console.warn('[Open MCT] Timelist install error:', e); }
+        }
 
         // Time Conductor Configuration
         if (typeof openmct.plugins.Conductor === 'function') {
@@ -291,15 +300,15 @@
                         clock: "local",
                         clockOffsets: {
                             start: -15 * 60 * 1000,
-                            end: 0
+                            end: 30 * 60 * 1000
                         }
                     },
                     {
                         name: "Fixed",
                         timeSystem: "utc",
                         bounds: {
-                            start: Date.now() - 30 * 60 * 1000,
-                            end: Date.now()
+                            start: Date.now() - 15 * 60 * 1000,
+                            end: Date.now() + 30 * 60 * 1000
                         }
                     }
                 ]
@@ -307,7 +316,7 @@
         }
 
         openmct.time.setClock('local');
-        openmct.time.setClockOffsets({ start: -15 * 60 * 1000, end: 0 });
+        openmct.time.setClockOffsets({ start: -15 * 60 * 1000, end: 30 * 60 * 1000 });
         openmct.time.setTimeSystem('utc');
 
         // Set Orion Branding (upper panel app logo)

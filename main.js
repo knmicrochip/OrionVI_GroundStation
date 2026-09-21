@@ -441,6 +441,136 @@ async function createWindow() {
                 setTimeout(() => {
                     mainWindow.close();
                 }, 1000);
+            } else if (testMode === 'test_timeline') {
+                try {
+                    const fs = require('fs');
+                    const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
+                    const docsImgDirs = [
+                        path.resolve(__dirname, 'docs/images'),
+                        path.resolve(__dirname, '../docs/images')
+                    ];
+                    docsImgDirs.forEach(d => {
+                        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                    });
+
+                    function saveImg(filename, img) {
+                        const buf = img.toPNG();
+                        docsImgDirs.forEach(d => fs.writeFileSync(path.join(d, filename), buf));
+                        if (fs.existsSync(artifactDir)) {
+                            fs.writeFileSync(path.join(artifactDir, filename), buf);
+                        }
+                    }
+
+                    console.log('[Test Timeline] Waiting for Open MCT initialization...');
+                    await new Promise(r => setTimeout(r, 4000));
+
+                    // 1. Navigate to Navigation Traverse Plan (native Open MCT Plan)
+                    console.log('[Test Timeline] Navigating to plan_nav...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:plan_nav';
+                    `);
+                    await new Promise(r => setTimeout(r, 4000));
+
+                    const planDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const planEl = document.querySelector('.c-plan');
+                            const canvas = document.querySelector('.c-plan canvas, canvas');
+                            const headings = Array.from(document.querySelectorAll('.c-plan__heading, .c-swimlane__heading, [class*="heading"]')).map(e => e.textContent.trim());
+                            const svgActivities = document.querySelectorAll('.c-plan__activity').length;
+                            return {
+                                planFound: Boolean(planEl),
+                                canvasFound: Boolean(canvas),
+                                headings,
+                                svgActivities,
+                                hash: window.location.hash
+                            };
+                        })()
+                    `);
+                    console.log('[Test Timeline] Plan Nav Diag:', JSON.stringify(planDiag));
+
+                    const planNavImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-openmct-plan-timeline.png', planNavImg);
+                    saveImg('screenshot-gantt-nav.png', planNavImg);
+                    console.log('[Test Timeline] Saved screenshot-openmct-plan-timeline.png');
+
+                    // 2. Navigate to Full Mission Master Time Strip (native Open MCT Time Strip)
+                    console.log('[Test Timeline] Navigating to timeline_mission...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:timeline_mission';
+                    `);
+                    await new Promise(r => setTimeout(r, 4500));
+
+                    const timeStripDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const timeStripEl = document.querySelector('.c-time-strip, .is-object-type-time-strip');
+                            const plots = document.querySelectorAll('.c-plot, .c-plot--stacked-container, .gl-plot').length;
+                            const plans = document.querySelectorAll('.c-plan').length;
+                            return {
+                                timeStripFound: Boolean(timeStripEl),
+                                plots,
+                                plans,
+                                hash: window.location.hash
+                            };
+                        })()
+                    `);
+                    console.log('[Test Timeline] Time Strip Diag:', JSON.stringify(timeStripDiag));
+
+                    const timeStripImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-openmct-time-strip.png', timeStripImg);
+                    console.log('[Test Timeline] Saved screenshot-openmct-time-strip.png');
+
+                    // 3. Navigate to Science Task Plan (native Open MCT Plan)
+                    console.log('[Test Timeline] Navigating to plan_science...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:plan_science';
+                    `);
+                    await new Promise(r => setTimeout(r, 3500));
+                    const planSciImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-gantt-science.png', planSciImg);
+
+                    // 4. Navigate to Maintenance Task Plan
+                    console.log('[Test Timeline] Navigating to plan_maintenance...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:plan_maintenance';
+                    `);
+                    await new Promise(r => setTimeout(r, 3000));
+                    const planMaintImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-gantt-maintenance.png', planMaintImg);
+
+                    // 5. Navigate to Probing Task Plan
+                    console.log('[Test Timeline] Navigating to plan_probing...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:plan_probing';
+                    `);
+                    await new Promise(r => setTimeout(r, 3000));
+                    const planProbeImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-gantt-manipulator.png', planProbeImg);
+
+                    // 6. Navigate to Timelist
+                    console.log('[Test Timeline] Navigating to timelist_nav...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:timelist_nav';
+                    `);
+                    await new Promise(r => setTimeout(r, 3500));
+                    const timelistImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-openmct-timelist.png', timelistImg);
+
+                    // 7. Navigate to NAV / AUTONOMY Operating Mode (display layout with embedded plan)
+                    console.log('[Test Timeline] Navigating to disp_nav...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:disp_nav';
+                    `);
+                    await new Promise(r => setTimeout(r, 3500));
+                    const dispNavImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-modes-nav-plan.png', dispNavImg);
+
+                    console.log('[Test Timeline] All timeline screenshots and verifications completed successfully!');
+                } catch (e) {
+                    console.error('[Test Timeline Error]', e);
+                }
+                setTimeout(() => {
+                    mainWindow.close();
+                }, 1000);
             } else {
                 setTimeout(() => {
                     console.log('Automated verification finished, closing window.');
