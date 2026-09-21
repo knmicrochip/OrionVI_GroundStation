@@ -72,7 +72,8 @@ Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, p
 ---
 
 ### 5. Native Open MCT Timelines, Interactive Controls & In-App Configurator
-Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls and zero-code in-app timeline customization:
+Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls, strict initiation standby gating, and zero-code in-app timeline customization:
+* **Timeline Initiation Standby Gating**: Timelines remain strictly in standby `IDLE` state upon application launch, page reload, and reset. Milestone activities do **not** run until explicitly initiated by clicking `▶ START`. While uninitiated, the Time Conductor cursor rests cleanly before the start line at `MET T+00:00` with activities parked ahead in standby buffer (`Awaiting Start`).
 * **Interactive Mission Timeline Controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`)**: Operators can start and control competition runs directly from the timeline view header or persistent top banner. Starting anchors `t0 = Date.now()`, automatically locks Open MCT Time Conductor bounds to the task duration, and dynamically re-anchors Gantt activities in real time.
 * **In-App Milestone & Activity Editor Modal (`⚙ EDIT TIMELINE`)**: A full-featured aerospace configuration dialog accessible from any timeline or the top banner. Operators can add new milestones, modify activity names, edit durations in minutes, reassign subsystem swimlanes (`Drive`, `Arm`, `Science`, `Safety`, `Power`), pick colors, and reorder steps. Changes are saved to `localStorage` and immediately update Open MCT Gantt charts and Time Strips without reloading. Includes a 1-click `↺ RESET TO ERC DEFAULTS` button.
 * **In-App Timeline Preset Switcher**: Seamlessly switch between ERC 2026 competition tasks:
@@ -84,7 +85,10 @@ Full integration with native NASA Open MCT timeline engines, featuring interacti
 * **Native Plan Layouts (`type: 'plan'`)**: High-performance canvas-rendered swimlanes (`Safety`, `Drive`, `Science`, `Arm`) with NASA-STD-3001 aerospace color coding, clickable activities, and full Conductor bounds synchronization.
 * **Universal Expanded View "X" Close Button**: All "Large View" expansions, flexible layout previews, modals, and popup inspectors reliably close immediately upon clicking the top-right "X" button, clicking the backdrop, or pressing `Escape`.
 
-![Native Open MCT Master Time Strip with Active Mission Controls](docs/images/screenshot-timeline-running.png)
+<p align="center">
+  <img src="docs/images/screenshot-timeline-idle.png" alt="Timeline Standby State Awaiting Initiation" width="49%" />
+  <img src="docs/images/screenshot-timeline-running.png" alt="Active Running Timeline Anchored to Mission Start" width="49%" />
+</p>
 
 <p align="center">
   <img src="docs/images/screenshot-timeline-editor.png" alt="In-App Mission Timeline Configurator Modal" width="85%" />
@@ -96,9 +100,24 @@ Full integration with native NASA Open MCT timeline engines, featuring interacti
 </p>
 
 <p align="center">
-  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Open MCT Activity Time List" width="49%" />
-  <img src="docs/images/screenshot-expanded-view-overlay.png" alt="Responsive Expanded View Overlay with X Button" width="49%" />
+  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Activity Time List" width="49%" />
+  <img src="docs/images/screenshot-expanded-view-overlay.png" alt="Responsive Full-Size Expanded View Overlay with X Button" width="49%" />
 </p>
+
+---
+
+### 6. Rover MQTT Live System Logs Console (`HEALTH / OVERVIEW`)
+A dedicated, real-time aerospace logging terminal embedded directly into the master **HEALTH / OVERVIEW** display layout (`disp_overview`) and available as a standalone Open MCT domain object (`rover_logs_console`).
+
+* **Live Ingestion Pipeline**: Ingests streaming text and JSON log messages transmitted from the rover over MQTT (default topic `rover/logs/#`, configurable via `MQTT_LOG_TOPIC` environment variable).
+* **Dual Format Parsing**: Automatically handles both raw text log lines (e.g. `"[INFO] Navigation RTAB-Map SLAM node started"`) and structured JSON payloads (`{ level: "WARN", source: "POWER", message: "..." }`).
+* **Aerospace Severity Badges**: Distinct high-contrast badges for log levels: <span style="background: #082f49; color: #7dd3fc; border: 1px solid #0369a1; padding: 1px 4px; font-weight: 800; font-size: 10px;">[INFO]</span>, <span style="background: #451a03; color: #fde68a; border: 1px solid #92400e; padding: 1px 4px; font-weight: 800; font-size: 10px;">[WARN]</span>, <span style="background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d; padding: 1px 4px; font-weight: 800; font-size: 10px;">[ERROR]</span>, <span style="background: #1e293b; color: #94a3b8; border: 1px solid #334155; padding: 1px 4px; font-weight: 800; font-size: 10px;">[DEBUG]</span>.
+* **Subsystem Source Tagging**: Automatically detects and tags the subsystem origin (`NAV`, `ARM`, `POWER`, `SCIENCE`, `SAFETY`, `COMM`, `DRIVE`) from MQTT topics or JSON fields.
+* **Real-Time Search & Filtering**: Client-side full-text search with instant severity level toggles (`ALL`, `INFO`, `WARN`, `ERR`).
+* **Operator Utilities**: Live WebSocket sync with REST history preload (`/api/logs`), `AUTO-SCROLL: ON/OFF` toggle, in-app test log injection (`+ TEST LOG`), buffer clear, and one-click log file export.
+* **Integrated Telemetry**: Seamlessly updates Open MCT telemetry points `rover.logs.latest`, `rover.logs.count`, and `rover.logs.level`.
+
+![Rover MQTT Live System Logs Console in HEALTH / OVERVIEW](docs/images/screenshot-overview-health-logs.png)
 
 ---
 
@@ -202,6 +221,7 @@ flowchart TD
             P_Exc["OrionExceptionEngine (Master Caution/Warn)"]
             P_Clock["OrionTaskClockPlugin (MET / ERC Timers)"]
             P_Modes["OrionModesPlugin (Tabbed Operating Layouts)"]
+            P_Logs["OrionLogConsolePlugin (Rover MQTT Logs)"]
         end
 
         subgraph SecondaryWindows ["Independent Windows"]
@@ -237,6 +257,9 @@ For complete engineering details, see the dedicated guides in the [`docs/`](docs
 The GCS includes automated headless Electron verification scripts:
 
 ```powershell
+# Verify timeline initiation standby gating & Rover MQTT Live Logs console
+$env:TEST_RUN="test_timeline_and_logs"; & "node_modules\electron\dist\electron.exe" .
+
 # Verify battery telemetry, top panel indicators & diagnostics window
 $env:TEST_RUN="test_battery"; & "node_modules\electron\dist\electron.exe" .
 

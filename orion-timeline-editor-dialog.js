@@ -168,7 +168,15 @@
 
         generatePlanBody(taskKey, baseTime) {
             const plan = this.getPlan(taskKey);
-            const t0 = (typeof baseTime === 'number' && baseTime > 0) ? baseTime : (Date.now() - 5 * 60 * 1000);
+            let t0;
+            if (typeof baseTime === 'number' && baseTime > 0) {
+                t0 = baseTime;
+            } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
+                t0 = window.OrionTaskManager.state.t0;
+            } else {
+                // Standby state: timeline not initiated yet. Anchor 60s in future so cursor is before start line
+                t0 = Date.now() + 60 * 1000;
+            }
             const body = {};
             let cursor = t0;
 
@@ -205,7 +213,14 @@
                 probing: 'plan_probing'
             };
 
-            const t0 = (typeof baseTime === 'number' && baseTime > 0) ? baseTime : Date.now();
+            let t0;
+            if (typeof baseTime === 'number' && baseTime > 0) {
+                t0 = baseTime;
+            } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
+                t0 = window.OrionTaskManager.state.t0;
+            } else {
+                t0 = Date.now() + 60 * 1000;
+            }
 
             for (const [taskKey, objKey] of Object.entries(mapping)) {
                 try {

@@ -91,7 +91,15 @@
             return window.OrionTimelineStore.generatePlanBody(taskKey, baseTime);
         }
         const template = TASK_PLANS_DATA[taskKey] || TASK_PLANS_DATA.nav;
-        const t0 = (typeof baseTime === 'number' && baseTime > 0) ? baseTime : (Date.now() - 5 * 60 * 1000);
+        let t0;
+        if (typeof baseTime === 'number' && baseTime > 0) {
+            t0 = baseTime;
+        } else if (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.state === 'RUNNING' && window.OrionTaskManager.state.t0) {
+            t0 = window.OrionTaskManager.state.t0;
+        } else {
+            // Standby state: timeline not initiated yet. Anchor 60s in future so cursor is before start line
+            t0 = Date.now() + 60 * 1000;
+        }
         const body = {};
         let cursor = t0;
 
@@ -188,6 +196,11 @@
         { key: 'rover.net.rssi', name: '5GHz Link RSSI', category: 'compute_net', unit: 'dBm', min: -90, max: -30 },
         { key: 'rover.net.bitrate_down', name: 'Downlink Throughput', category: 'compute_net', unit: 'Mbps', min: 0, max: 50 },
         { key: 'rover.net.packet_loss', name: 'Packet Loss', category: 'compute_net', unit: '%', min: 0, max: 10 },
+
+        // Rover Logs & Events
+        { key: 'rover.logs.latest', name: 'Rover Latest Log Message', category: 'compute_net', format: 'string' },
+        { key: 'rover.logs.count', name: 'Rover Total Log Messages', category: 'compute_net', format: 'number' },
+        { key: 'rover.logs.level', name: 'Rover Latest Log Level', category: 'compute_net', format: 'string' },
 
         // Perception
         { key: 'rover.perception.realsense.alive', name: 'RealSense Alive', category: 'perception', format: 'number' },
@@ -333,6 +346,7 @@
         'plan_maintenance': { name: 'Maintenance Task Plan', location: 'task_plans', type: 'plan' },
         'plan_probing': { name: 'Probing Task Plan', location: 'task_plans', type: 'plan' },
         'timelist_nav': { name: 'Navigation Activities Time List', location: 'task_plans', type: 'timelist' },
+        'rover_logs_console': { name: 'ROVER MQTT LIVE SYSTEM LOGS', location: 'displays', type: 'orion.log-console' },
         'displays': {
             name: 'Displays',
             location: 'root',
@@ -342,6 +356,7 @@
                 'timeline_nav',
                 'timeline_science',
                 'disp_overview',
+                'rover_logs_console',
                 'disp_cameras',
                 'disp_teleop',
                 'disp_nav',
@@ -390,6 +405,12 @@
                 name: 'Orion Telemetry Point',
                 description: 'Normalized telemetry metric from the Orion VI Rover',
                 cssClass: 'icon-telemetry'
+            });
+
+            openmct.types.addType('orion.log-console', {
+                name: 'Rover System Log Console',
+                description: 'Live console for rover logs received via MQTT',
+                cssClass: 'icon-notebook'
             });
 
             // Interceptor to ensure every retrieved domain object has configuration and series defined
@@ -690,6 +711,14 @@
                             location: `${TAXONOMY_NAMESPACE}:displays`
                         });
                     }
+                    if (key === 'rover_logs_console') {
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'ROVER MQTT LIVE SYSTEM LOGS',
+                            type: 'orion.log-console',
+                            location: `${TAXONOMY_NAMESPACE}:displays`
+                        });
+                    }
 
                     // 4. Native Open MCT LAD Tables
                     if (key === 'lad_power') {
@@ -957,14 +986,16 @@
                             composition: [
                                 { namespace: TAXONOMY_NAMESPACE, key: 'widget_overview_status' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'plot_bus_voltage' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'lad_power' }
+                                { namespace: TAXONOMY_NAMESPACE, key: 'lad_power' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'rover_logs_console' }
                             ],
                             configuration: {
                                 layoutGrid: [10, 10],
                                 items: [
-                                    createLayoutItem('item_ov_status', 'widget_overview_status', 1, 1, 98, 9),
-                                    createLayoutItem('item_ov_plot', 'plot_bus_voltage', 1, 11, 48, 44),
-                                    createLayoutItem('item_ov_lad', 'lad_power', 50, 11, 49, 44)
+                                    createLayoutItem('item_ov_status', 'widget_overview_status', 1, 1, 98, 8),
+                                    createLayoutItem('item_ov_plot', 'plot_bus_voltage', 1, 10, 48, 26),
+                                    createLayoutItem('item_ov_lad', 'lad_power', 50, 10, 49, 26),
+                                    createLayoutItem('item_ov_logs', 'rover_logs_console', 1, 37, 98, 26)
                                 ]
                             }
                         });

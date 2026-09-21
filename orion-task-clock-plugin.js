@@ -94,15 +94,25 @@
                 const saved = localStorage.getItem('orion_task_clock');
                 if (saved) {
                     const parsed = JSON.parse(saved);
+                    // If previously saved as RUNNING, check if run expired or uninitiated
+                    if (parsed.state === 'RUNNING') {
+                        const elapsedMs = parsed.t0 ? (Date.now() - parsed.t0) : Infinity;
+                        if (elapsedMs > (parsed.limit_s || 2400) * 1000 || !parsed.t0) {
+                            parsed.state = 'IDLE';
+                            parsed.t0 = null;
+                            parsed.stepIndex = 0;
+                            parsed.stepStartTime = null;
+                        }
+                    }
                     return parsed;
                 }
             } catch (_) {}
 
             return {
-                task: 'science',
+                task: 'navigation',
                 state: 'IDLE', // 'IDLE', 'RUNNING', 'HELD', 'STOPPED'
                 t0: null,
-                limit_s: 2400,
+                limit_s: 2100,
                 hold_s: 0,
                 stepIndex: 0,
                 stepStartTime: null,
@@ -283,7 +293,7 @@
             this.saveState();
 
             if (typeof window !== 'undefined' && window.OrionTimelineStore && openmct) {
-                window.OrionTimelineStore.reanchorAllPlans(openmct, Date.now() - 5 * 60 * 1000);
+                window.OrionTimelineStore.reanchorAllPlans(openmct, Date.now() + 60 * 1000);
             }
         }
 
@@ -446,7 +456,7 @@
 
         select.addEventListener('change', (e) => {
             taskManager.setTask(e.target.value);
-            const baseT = taskManager.state.t0 || (Date.now() - 5 * 60 * 1000);
+            const baseT = taskManager.state.t0 || (Date.now() + 60 * 1000);
             if (typeof window !== 'undefined' && window.OrionTimelineStore) {
                 window.OrionTimelineStore.reanchorAllPlans(openmct, baseT);
             }
@@ -533,8 +543,13 @@
 
             const curr = taskManager.getCurrentStep();
             const next = taskManager.getNextStep();
-            stepNow.textContent = curr ? curr.name : '(Mission Complete)';
-            stepNext.textContent = next ? next.name : '(None)';
+            if (state.state === 'IDLE') {
+                stepNow.textContent = 'Awaiting Start (Click ▶ START)';
+                stepNext.textContent = curr ? `${curr.name} (${curr.durationM}m)` : '(None)';
+            } else {
+                stepNow.textContent = curr ? curr.name : '(Mission Complete)';
+                stepNext.textContent = next ? next.name : '(None)';
+            }
         });
     }
 
@@ -781,7 +796,11 @@
                             }
 
                             const curr = taskManager.getCurrentStep();
-                            stepName.textContent = curr ? `${curr.name} (${curr.durationM}m)` : '(Complete / Planned)';
+                            if (!isRunning && !isHeld && !isStopped) {
+                                stepName.textContent = 'Awaiting Initiation (Click ▶ START)';
+                            } else {
+                                stepName.textContent = curr ? `${curr.name} (${curr.durationM}m)` : '(Complete / Planned)';
+                            }
                             if (selectTask.value !== state.task) {
                                 selectTask.value = state.task;
                             }

@@ -13,7 +13,11 @@ function createMqttBridge(options) {
     const router = express.Router();
 
     let brokerUrl = options.brokerUrl || process.env.MQTT_BROKER_URL || 'mqtt://192.168.1.1:1883';
-    const topics = options.topics || ['Power/feedback', 'Power/#', 'rover/#'];
+    const defaultTopics = ['Power/feedback', 'Power/#', 'rover/#', 'rover/log', 'rover/logs', 'rover/logs/#', 'rover/syslog'];
+    if (process.env.MQTT_LOG_TOPIC && !defaultTopics.includes(process.env.MQTT_LOG_TOPIC)) {
+        defaultTopics.push(process.env.MQTT_LOG_TOPIC);
+    }
+    const topics = options.topics || defaultTopics;
 
     let mqttClient = null;
     let isConnected = false;

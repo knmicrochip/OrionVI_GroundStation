@@ -26,6 +26,7 @@
     <script src="orion-antenna-plugin.js"></script>
     <script src="orion-timeline-editor-dialog.js"></script>
     <script src="orion-model-plugin.js"></script>
+    <script src="orion-log-console-plugin.js"></script>
 
     <style>
         .l-shell__app-logo {
@@ -195,13 +196,101 @@
             pointer-events: auto !important;
         }
 
+        /* Overlays: maintain native positioning while elevating stacking context */
         .c-overlay__outer {
             z-index: 10004 !important;
-            position: relative !important;
         }
 
-        .c-overlay__contents {
+        /* Native Open MCT Large View & Fullscreen Overlay Bounds Fixes */
+        .l-overlay-wrapper.l-overlay-large .c-overlay__outer,
+        .l-overlay-wrapper .l-overlay-large .c-overlay__outer,
+        .l-overlay-large .c-overlay__outer {
+            position: absolute !important;
+            top: 12px !important;
+            right: 12px !important;
+            bottom: 12px !important;
+            left: 12px !important;
+            width: auto !important;
+            height: auto !important;
             z-index: 10004 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            background: #181818 !important;
+            border: 1px solid #333333 !important;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8) !important;
+            padding: 8px 10px !important;
+            overflow: hidden !important;
+        }
+
+        .l-overlay-wrapper.l-overlay-fullscreen .c-overlay__outer,
+        .l-overlay-wrapper .l-overlay-fullscreen .c-overlay__outer,
+        .l-overlay-fullscreen .c-overlay__outer {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            z-index: 10004 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            background: #181818 !important;
+            padding: 0px !important;
+            overflow: hidden !important;
+        }
+
+        .l-overlay-wrapper .c-overlay__contents,
+        .c-overlay .c-overlay__contents {
+            z-index: 10004 !important;
+            position: relative !important;
+            flex: 1 1 auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            height: 100% !important;
+            width: 100% !important;
+            min-height: 0 !important;
+            overflow: hidden !important;
+        }
+
+        .l-overlay-wrapper .l-preview-window,
+        .l-overlay-wrapper .js-preview-window,
+        .c-overlay .l-preview-window,
+        .c-overlay .js-preview-window {
+            position: absolute !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+
+        .l-overlay-wrapper .l-preview-window__object-view,
+        .c-overlay .l-preview-window__object-view {
+            flex: 1 1 auto !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            width: 100% !important;
+            display: flex !important;
+            flex-direction: column !important;
+            overflow: auto !important;
+        }
+
+        .l-overlay-wrapper .l-preview-window__object-view > div,
+        .c-overlay .l-preview-window__object-view > div {
+            flex: 1 1 auto !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            width: 100% !important;
+        }
+
+        .l-overlay-wrapper.l-overlay-large .l-browse-bar,
+        .l-overlay-large .l-browse-bar {
+            margin-right: 50px !important;
+            margin-bottom: 5px !important;
         }
 
         /* Expanded view & modal close button: must always be on top and clickable */
@@ -384,6 +473,9 @@
 
         // Install NASA / ECSS Exception & Status Widgets Plugin
         openmct.install(OrionStatusWidgetsPlugin());
+
+        // Install Rover MQTT Live System Logs Plugin
+        openmct.install(OrionLogConsolePlugin());
 
         // Install Operating Modes & Layouts
         openmct.install(OrionModesPlugin());

@@ -33,6 +33,10 @@ class TelemetryGateway {
             steps: {}
         };
 
+        // Rover MQTT Live Text Log Buffer
+        this.roverLogs = [];
+        this.logIdCounter = 0;
+
         // Telemetry state store: keys exist but values start unpopulated (null)
         this.state = {};
 
@@ -354,9 +358,107 @@ class TelemetryGateway {
 
     // Ingest actual telemetry packet from MQTT bridge
     ingestMqttMessage(topic, payloadStr, parsedObj) {
-        if (parsedObj) {
+        // Detect Rover MQTT Log messages
+        const lowerTopic = String(topic || '').toLowerCase();
+        const customTopic = process.env.MQTT_LOG_TOPIC ? process.env.MQTT_LOG_TOPIC.toLowerCase() : null;
+        const isLogTopic = lowerTopic.includes('log') || lowerTopic.includes('syslog') || (customTopic && lowerTopic === customTopic);
+
+        if (isLogTopic || (parsedObj && (parsedObj.type === 'log' || parsedObj.log !== undefined))) {
+            this.ingestRoverLog(topic, payloadStr, parsedObj);
+        }
+
+        if (parsedObj && typeof parsedObj === 'object') {
             this.ingestSubsystemPayload(topic, parsedObj);
         }
+    }
+
+    // Ingest Rover MQTT Text / JSON Log Entry
+    ingestRoverLog(topic, rawStr, parsedObj) {
+        const now = Date.now();
+        this.lastTelemetryTime = now;
+
+        let timestamp = now;
+        let level = 'INFO';
+        let source = 'ROVER';
+        let message = '';
+
+        if (parsedObj && typeof parsedObj === 'object') {
+            if (parsedObj.timestamp) timestamp = Number(parsedObj.timestamp) || now;
+            else if (parsedObj.utc) timestamp = Number(parsedObj.utc) || now;
+            else if (parsedObj.time) timestamp = Number(parsedObj.time) || now;
+
+            if (parsedObj.level) level = String(parsedObj.level).toUpperCase();
+            if (parsedObj.source) source = String(parsedObj.source).toUpperCase();
+            else if (parsedObj.subsystem) source = String(parsedObj.subsystem).toUpperCase();
+
+            message = parsedObj.message || parsedObj.msg || parsedObj.text || parsedObj.log || JSON.stringify(parsedObj);
+        } else {
+            message = String(rawStr || '').trim();
+        }
+
+        // Auto-detect log level if not explicitly provided
+        if (!parsedObj || !parsedObj.level) {
+            const upperMsg = message.toUpperCase();
+            if (upperMsg.includes('[ERROR]') || upperMsg.includes('[ERR]') || upperMsg.includes('[FATAL]') || upperMsg.includes('[CRIT]') || upperMsg.includes('ERROR:') || upperMsg.includes('FATAL:')) {
+                level = 'ERROR';
+            } else if (upperMsg.includes('[WARN]') || upperMsg.includes('[WARNING]') || upperMsg.includes('WARN:') || upperMsg.includes('WARNING:')) {
+                level = 'WARN';
+            } else if (upperMsg.includes('[DEBUG]') || upperMsg.includes('DEBUG:')) {
+                level = 'DEBUG';
+            } else {
+                level = 'INFO';
+            }
+        }
+
+        // Auto-detect source subsystem from topic if not explicitly set
+        if (!parsedObj || (!parsedObj.source && !parsedObj.subsystem)) {
+            const topicParts = topic.split('/');
+            if (topicParts.length > 2) {
+                source = topicParts[topicParts.length - 1].toUpperCase();
+                if (source.includes('LOG')) {
+                    source = topicParts[topicParts.length - 2].toUpperCase();
+                }
+            }
+        }
+
+        const isoTime = new Date(timestamp).toISOString().split('T')[1].replace('Z', '');
+        const logEntry = {
+            id: ++this.logIdCounter,
+            utc: timestamp,
+            isoTime: isoTime,
+            level: level,
+            source: source,
+            message: message,
+            topic: topic
+        };
+
+        this.roverLogs.push(logEntry);
+        if (this.roverLogs.length > 500) {
+            this.roverLogs.shift();
+        }
+
+        // Update Open MCT telemetry metrics
+        this.updateTelemetryPoint('rover.logs.latest', message, timestamp);
+        this.updateTelemetryPoint('rover.logs.count', this.roverLogs.length, timestamp);
+        this.updateTelemetryPoint('rover.logs.level', level, timestamp);
+
+        // Notify realtime subscribers
+        this.subscribers.forEach(cb => {
+            try {
+                cb({
+                    type: 'rover_log',
+                    id: 'rover.logs.stream',
+                    log: logEntry,
+                    point: {
+                        id: 'rover.logs.latest',
+                        utc: timestamp,
+                        value: message
+                    }
+                });
+            } catch (_) {}
+        });
+
+        return logEntry;
     }
 
     // Execute operator command

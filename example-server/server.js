@@ -54,6 +54,31 @@ function createServer() {
         res.json(result);
     });
 
+    // Rover MQTT Logs Endpoints
+    app.get('/api/logs', function (req, res) {
+        var limit = parseInt(req.query.limit, 10) || 500;
+        var logs = gateway.roverLogs.slice(-limit);
+        res.json({
+            logs: logs,
+            count: gateway.roverLogs.length,
+            activeTopic: process.env.MQTT_LOG_TOPIC || 'rover/logs/#'
+        });
+    });
+
+    app.post('/api/logs', function (req, res) {
+        if (!req.body || (!req.body.message && !req.body.text && !req.body.msg)) {
+            return res.status(400).json({ error: 'Missing log message in request body' });
+        }
+        var topic = req.body.topic || process.env.MQTT_LOG_TOPIC || 'rover/logs/system';
+        var entry = gateway.ingestRoverLog(topic, req.body.message || req.body.text || req.body.msg, req.body);
+        res.json({ success: true, log: entry });
+    });
+
+    app.delete('/api/logs', function (req, res) {
+        gateway.roverLogs = [];
+        res.json({ success: true, message: 'Rover log buffer cleared' });
+    });
+
     // Ingest mock telemetry payloads for testing
     app.post('/api/inject-telemetry', function (req, res) {
         if (!req.body || typeof req.body !== 'object') {

@@ -17,7 +17,7 @@ function RealtimeServer(spacecraft, gateway) {
         }
 
         function notifyGateway(point) {
-            if (subscribed[point.id] || subscribed['*'] || subscribed['all']) {
+            if (subscribed[point.id] || subscribed['*'] || subscribed['all'] || point.type === 'rover_log') {
                 if (ws.readyState === 1) {
                     try { ws.send(JSON.stringify(point)); } catch (_) {}
                 }
