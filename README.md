@@ -1,8 +1,16 @@
 <div align="center" style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-  <img src="logotyp_pion_white.png" alt="Orion VI Logo" width="90" style="margin-bottom: 8px; filter: drop-shadow(0 0 5px rgba(255,255,255,0.25));" />
-  <h1 style="margin: 0; font-size: 24px; font-weight: 800; letter-spacing: 1.5px; color: #f8fafc;">ORION VI ROVER — GROUND CONTROL APPLICATION</h1>
-  <p style="margin: 4px 0 14px 0; font-size: 13px; color: #94a3b8;">
-    Core NASA Open MCT Application, Plugins & Telemetry Gateway | <b>KN MicroChip (ERC 2026/27)</b>
+  <img src="logotyp_pion_white.png" alt="Orion VI Logo" width="110" style="margin-bottom: 12px; filter: drop-shadow(0 0 6px rgba(255,255,255,0.2));" />
+  <h1 style="margin: 0; font-size: 28px; font-weight: 800; letter-spacing: 2px; color: #f8fafc;">ORION VI ROVER — GROUND CONTROL STATION</h1>
+  <p style="margin: 6px 0 16px 0; font-size: 14px; color: #94a3b8; font-weight: 500;">
+    Mission Control & Telemetry System | <b>KN MicroChip</b> | <b>European Rover Challenge (ERC 2026/27)</b>
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/Open%20MCT-v4.6.0-004c86?style=flat-square&logo=nasa&logoColor=white" alt="Open MCT" />
+    <img src="https://img.shields.io/badge/Architecture-NASA--STD--3001-1e293b?style=flat-square" alt="NASA-STD-3001" />
+    <img src="https://img.shields.io/badge/Power%20Bus-20.16V%20Nominal%20(5S)-10b981?style=flat-square" alt="Power Bus" />
+    <img src="https://img.shields.io/badge/Cameras-10x%20Flexible%20Layout-38bdf8?style=flat-square" alt="10x Cameras" />
+    <img src="https://img.shields.io/badge/Comms-5GHz%20Wi--Fi%20RF-f59e0b?style=flat-square" alt="5GHz Comms" />
+    <img src="https://img.shields.io/badge/Runtime-Zero--Install%20Portable-8b5cf6?style=flat-square" alt="Zero-Install" />
   </p>
 </div>
 
@@ -10,112 +18,212 @@
 
 <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
 
-## Application Overview
+## Overview
 
-This directory contains the primary Open MCT implementation, custom telemetry plugins, and backend services for the **Orion VI Mars Rover Ground Control Station**.
+A mission-critical Ground Control Station (GCS) engineered for the **Orion VI Planetary Rover**, built by **KN MicroChip** for competition in the **European Rover Challenge (ERC 2026/27)**. 
 
-![Orion VI Main Teleoperation Display](../docs/images/screenshot-clean-teleop-display.png)
+Built on top of the **NASA Open MCT** framework, the station enforces strict **NASA-STD-3001** and **ECSS** human-system interface principles:
+* **Aerospace Dark Palette (`#121212`)**: Low-glare, high-contrast dark environment designed for outdoor command shelters.
+* **Square Edge Topology (`0px !important`)**: Zero-radius framing for maximum information density and clean visual alignment.
+* **Factual Telemetry Only**: Status indicators strictly reflect verified telemetry (`[B1: OK]` when link active, `[B1: ---]` when unreceived).
+* **Tabular Monospace Typography**: Monospace numeric streams prevent character-width jitter during high-frequency sensor updates.
 
 ---
 
-## Quick Launch (Zero-Install Portable Mode)
+## Mission Interface Gallery
 
-The pre-bundled, self-contained Electron runtime is located in `node_modules/electron/dist/electron.exe`. You do not need to install Node.js or any VS Code extensions on your machine.
+### 1. Main Teleoperation & Subsystem HUD
+The master teleoperation dashboard integrating real-time IMU artificial horizon, robotic arm manipulator controls, subsystem power distribution strip, and live battery states on the upper HUD.
 
-### In PowerShell:
+![Orion VI Main Teleoperation Display](docs/images/screenshot-clean-teleop-display.png)
+
+---
+
+### 2. 5S Li-ion Battery Diagnostics & Health Monitoring
+Factual **20.1V – 20.2V** nominal operating plateau monitoring with individual module health badges, parallel bus balance tracking, and standalone diagnostics window with a **14V – 22V** trend graph.
+
+<p align="center">
+  <img src="docs/images/screenshot-top-panel-battery-states.png" alt="Top Panel Battery Indicator" width="100%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot-battery-details-calibrated.png" alt="Standalone Battery Diagnostics Window" width="85%" />
+</p>
+
+---
+
+### 3. 10-Camera Flexible Layout & Reconnect Watchdog
+Integrated **Flexible Layout** tab (`rover_cameras_flex`) within Rover Displays. Features primary hero view (Mast Camera), 9 auxiliary feeds, 5-second automatic reconnect watchdog, and independent sub-window popouts for multi-monitor command desks.
+
+![10-Camera Flexible Layout in Rover Displays](docs/images/screenshot-10-cameras-flexible-layout-mixed.png)
+
+<p align="center">
+  <img src="docs/images/screenshot-cameras-reconnect-countdown.png" alt="Camera Reconnect Watchdog Countdown" width="58%" />
+  <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Standalone Camera Popout Window" width="38%" />
+</p>
+
+---
+
+### 4. 5GHz RF Comms & Competition Task Timeline
+Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput) alongside ERC competition mission phase timers and Gantt task clocks.
+
+<p align="center">
+  <img src="docs/images/screenshot-antenna-details.png" alt="5GHz RF Comms Diagnostics" width="49%" />
+  <img src="docs/images/screenshot-gantt-nav-running.png" alt="ERC Navigation Task Gantt Clock" width="49%" />
+</p>
+
+---
+
+## Quick Start (Zero Installation)
+
+The project includes a pre-bundled, portable **Electron runtime** (`node_modules/electron/dist/electron.exe`) embedding both Chromium and Node.js. **No external installations of Node.js, npm, or VS Code extensions are required on Windows.**
+
+### Option A: Windows File Explorer (Double-Click)
+Double-click [`start.bat`](start.bat).
+
+### Option B: PowerShell
 ```powershell
 .\start.bat
 ```
-*(or `.\start.ps1`)*
+*(or run the PowerShell launcher: `.\start.ps1`)*
 
-### In Command Prompt (CMD):
+> [!NOTE]
+> In PowerShell, the `.\` prefix is mandatory. PowerShell requires this prefix to execute files in the current working directory for security.
+
+### Option C: Command Prompt (CMD)
 ```cmd
 start.bat
 ```
 
-### In Windows File Explorer:
-Double-click [`start.bat`](start.bat).
+### Option D: NPM Scripts (If Node.js is Installed)
+```bash
+# Launch Electron native desktop window
+npm start
+
+# Launch server and auto-open default web browser at http://localhost:8088
+npm run start:browser
+
+# Launch background server only (headless)
+npm run start:web
+```
 
 ---
 
-## Typography & Aerospace Font Stack
+## Typography & Fonts Specification
 
-This application adheres to aerospace human-factors design standards:
+The Orion VI Ground Control Station enforces strict aerospace typography standards across all UI components and documentation:
 
-* **UI Labels & Interface Controls**:
-  ```css
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  ```
-* **Telemetry Data Streams & Tabular Indicators**:
-  ```css
-  font-family: "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace;
-  font-variant-numeric: tabular-nums;
-  ```
-  *Tabular monospace numbers ensure that high-speed numerical updates (such as pack voltages, current draw, and joint angles) do not vibrate or jitter horizontally.*
+```
++-----------------------------------------------------------------------------------------+
+| Interface Element   | Primary Font Stack                                                |
++---------------------+-------------------------------------------------------------------+
+| Headings & UI Labels| -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif |
+| Telemetry & Numbers | "JetBrains Mono", "Fira Code", Consolas, "Courier New", monospace|
+| Status Badges       | "SFMono-Regular", Consolas, Menlo, monospace (font-weight: 800)   |
+| Time & Coordinates  | "JetBrains Mono", monospace (font-variant-numeric: tabular-nums)  |
++-----------------------------------------------------------------------------------------+
+```
 
----
-
-## Subsystems & Visual Highlights
-
-### 1. Power Subsystem (~20.1V – 20.2V 5S Li-ion Accumulator)
-Monitors 4 parallel 5S packs, main bus voltage, current draw, and temperatures with real-time fault isolation.
-
-<p align="center">
-  <img src="../docs/images/screenshot-top-panel-battery-states.png" alt="Top Panel Battery HUD" width="100%" />
-</p>
-<p align="center">
-  <img src="../docs/images/screenshot-battery-details-calibrated.png" alt="Standalone Battery Diagnostics Window" width="80%" />
-</p>
-
-### 2. Multi-Camera Flexible Layout & Reconnect Watchdog
-Integrated as a dedicated **Flexible Layout** tab in Rover Displays (`modes_tab`) with primary hero mast camera, auxiliary feeds, and automated 5-second reconnect watchdog polling.
-
-<p align="center">
-  <img src="../docs/images/screenshot-10-cameras-flexible-layout-mixed.png" alt="10-Camera Flexible Layout" width="100%" />
-</p>
-<p align="center">
-  <img src="../docs/images/screenshot-cameras-reconnect-countdown.png" alt="Watchdog Countdown" width="55%" />
-  <img src="../docs/images/screenshot-camera-popout-nosignal.png" alt="Camera Popout Window" width="40%" />
-</p>
-
-### 3. 5GHz RF Comms & Competition Mission Clock
-Monitors wireless link quality, RSSI, SNR, and uplink/downlink throughput alongside ERC competition task countdown timers.
-
-<p align="center">
-  <img src="../docs/images/screenshot-antenna-details.png" alt="5GHz RF Comms Diagnostics" width="49%" />
-  <img src="../docs/images/screenshot-gantt-nav-running.png" alt="ERC Navigation Task Gantt Clock" width="49%" />
-</p>
+### Why Tabular Monospace Font Matters:
+In mission-critical aerospace telemetry, numbers must render with **fixed tabular character widths** (`font-variant-numeric: tabular-nums`). If proportional fonts (like Arial or Helvetica) are used for high-frequency telemetry (such as battery voltage updating at 10Hz), numbers jitter horizontally as glyph widths change (e.g. `1` is narrower than `8`), causing operator eye fatigue and reading errors during high-stress competition runs.
 
 ---
 
-## Plugin Directory Reference
+## Subsystems Architecture
 
-| Plugin / File | Subsystem | Description |
-| :--- | :--- | :--- |
-| [`orion-battery-plugin.js`](orion-battery-plugin.js) | Power (5S Li-ion) | Parallel bus & 4-pack voltage monitoring (`~20.1V–20.2V`), fault isolation, top panel HUD, and multi-window sync. |
-| [`battery-details.html`](battery-details.html) | Power Diagnostics | Standalone secondary window with KPI cards, individual cell badges, 14V–22V trend chart, and actual/simulated mode toggle. |
-| [`orion-camera-mosaic-plugin.js`](orion-camera-mosaic-plugin.js) | Vision & Teleop | 10-camera flexible layout tab (`rover_cameras_flex`), individual camera popouts, active timestamps, and 5-second reconnect countdown. |
-| [`camera-view.html`](camera-view.html) | Camera View Viewer | Standalone popout camera viewer with native snapshotting and watchdog overlay. |
-| [`orion-antenna-plugin.js`](orion-antenna-plugin.js) | 5GHz RF Comms | RF link quality, signal strength (RSSI/SNR), and uplink/downlink throughput monitoring. |
-| [`antenna-details.html`](antenna-details.html) | RF Diagnostics | Standalone 5GHz RF telemetry dashboard. |
-| [`orion-model-plugin.js`](orion-model-plugin.js) | 3D Digital Twin | Real-time Three.js 3D rendering of [`orion_VI.glb`](orion_VI.glb) with IMU kinematics and joint synchronization. |
-| [`orion-attitude-indicator-plugin.js`](orion-attitude-indicator-plugin.js) | Navigation | Real-time artificial horizon displaying pitch, roll, and heading. |
-| [`orion-modes-plugin.js`](orion-modes-plugin.js) | Operational Modes | Tabbed views for Teleoperation, Autonomous Navigation, Science Sampling, and Camera Feeds. |
-| [`orion-exception-engine.js`](orion-exception-engine.js) | Fault Isolation | Master Caution & Warning annunciators following NASA/ECSS standards. |
-| [`orion-task-clock-plugin.js`](orion-task-clock-plugin.js) | Mission Timing | ERC competition task countdown timers and Mission Elapsed Time (MET). |
-| [`orion-gamepad-plugin.js`](orion-gamepad-plugin.js) | Controls | Direct HTML5 Gamepad API integration for joystick teleoperation. |
-| [`orion-dictionary-plugin.js`](orion-dictionary-plugin.js) | Taxonomy | Open MCT object provider and domain taxonomy mapping. |
-| [`orion-telemetry-plugin.js`](orion-telemetry-plugin.js) | Telemetry Ingress | Normalized historical and real-time telemetry providers. |
+```mermaid
+flowchart TD
+    subgraph Rover ["Orion VI Rover (Physical / Simulation)"]
+        subgraph PowerSub ["Power Subsystem"]
+            B1["Pack 1 (5S Li-ion)"]
+            B2["Pack 2 (5S Li-ion)"]
+            B3["Pack 3 (5S Li-ion)"]
+            B4["Pack 4 (5S Li-ion)"]
+            Bus["20V DC Main Power Bus"]
+        end
+        Cams["10x Downlink Video Cameras"]
+        Nav["Autonomous Nav & IMU"]
+        Arm["6-DoF Manipulator"]
+        Broker["Mosquitto MQTT Broker (192.168.1.1:1883)"]
+        
+        PowerSub -->|"Power/feedback"| Broker
+        Nav -->|"rover/nav/#"| Broker
+        Arm -->|"rover/arm/#"| Broker
+    end
+
+    subgraph GCS_Backend ["Ground Station Gateway (Node.js/Express :8088)"]
+        Bridge["MQTT TCP Bridge"]
+        Gateway["Telemetry Gateway & Ring Buffers"]
+        WSServer["WebSocket Realtime Feed (/realtime)"]
+        HTTPServer["Static & Historical REST API (/history, /api)"]
+        
+        Broker <==>|"TCP Socket"| Bridge
+        Bridge --> Gateway
+        Gateway --> WSServer
+        Gateway --> HTTPServer
+    end
+
+    subgraph GCS_Frontend ["Open MCT Mission Control (Electron / Browser)"]
+        Shell["Open MCT UI Shell (Aerospace Theme)"]
+        
+        subgraph Plugins ["Custom Orion Plugins"]
+            P_Batt["OrionBatteryPlugin (Top HUD & Health)"]
+            P_Cam["OrionCameraMosaicPlugin (Flexible Layout)"]
+            P_RF["OrionAntennaPlugin (5GHz Signal)"]
+            P_3D["OrionModelPlugin (Three.js 3D Rover)"]
+            P_Exc["OrionExceptionEngine (Master Caution/Warn)"]
+            P_Clock["OrionTaskClockPlugin (MET / ERC Timers)"]
+            P_Modes["OrionModesPlugin (Tabbed Operating Layouts)"]
+        end
+
+        subgraph SecondaryWindows ["Independent Windows"]
+            Win_Batt["Battery Diagnostics (battery-details.html)"]
+            Win_RF["RF Comms Diagnostics (antenna-details.html)"]
+            Win_Cam["Detached Camera Views (camera-view.html)"]
+        end
+
+        WSServer <==>|"WebSocket"| Plugins
+        HTTPServer <==>|"HTTP Fetch"| Plugins
+        Plugins --> Shell
+        P_Batt <==>|"BroadcastChannel ('orion-battery-sync')"| Win_Batt
+        P_Cam -->|"window.open"| Win_Cam
+        P_RF -->|"window.open"| Win_RF
+    end
+```
 
 ---
 
-## Detailed Documentation
+## Detailed Documentation Directory
 
-For comprehensive engineering specifications, see the parent documentation:
-* [Master Project README](../README.md)
-* [System Architecture Guide](../docs/ARCHITECTURE.md)
-* [Battery & Power Subsystem Guide](../docs/BATTERY_SUBSYSTEM.md)
-* [Multi-Camera System Guide](../docs/CAMERA_SYSTEM.md)
-* [Telemetry Dictionary Reference](../docs/TELEMETRY_DICTIONARY.md)
+For complete engineering details, see the dedicated guides in the [`docs/`](docs/) directory:
+
+* [**Architecture & Protocol Guide**](docs/ARCHITECTURE.md): Backend gateway, MQTT bridge, FIFO ring-buffers, and multi-window state synchronization.
+* [**Battery Subsystem Guide**](docs/BATTERY_SUBSYSTEM.md): 5S Li-ion battery curves, 20.1V–20.2V calibration, fault isolation thresholds, and diagnostics UI.
+* [**Camera System Guide**](docs/CAMERA_SYSTEM.md): 10-camera flexible layout, reconnect watchdog mechanism, streaming architecture, and snapshotting.
+* [**Telemetry Dictionary**](docs/TELEMETRY_DICTIONARY.md): Comprehensive table of telemetry identifiers, units, limits, and payload schemas.
+
+---
+
+## Automated Verification Tests
+
+The GCS includes automated headless Electron verification scripts:
+
+```powershell
+# Verify battery telemetry, top panel indicators & diagnostics window
+$env:TEST_RUN="test_battery"; & "node_modules\electron\dist\electron.exe" .
+
+# Verify 10-camera flexible layout & reconnect watchdog countdown
+$env:TEST_RUN="test_cameras"; & "node_modules\electron\dist\electron.exe" .
+
+# Full end-to-end telemetry ingestion test
+$env:TEST_RUN="e2e"; & "node_modules\electron\dist\electron.exe" .
+```
+
+---
+
+## License & Team
+* **Team**: KN MicroChip — Orion Rover Team
+* **Competition**: European Rover Challenge (ERC 2026/27)
+* **Core Framework**: [NASA Open MCT](https://nasa.github.io/openmct/) (Apache 2.0 License)
 
 </div>
