@@ -27,19 +27,27 @@ Built on top of the **NASA Open MCT** framework, the station enforces strict **N
 * **Square Edge Topology (`0px !important`)**: Zero-radius framing for maximum information density and clean visual alignment.
 * **Factual Telemetry Only**: Status indicators strictly reflect verified telemetry (`[B1: OK]` when link active, `[B1: ---]` when unreceived).
 * **Tabular Monospace Typography**: Monospace numeric streams prevent character-width jitter during high-frequency sensor updates.
+* **Decoupled Clocks**: All telemetry displays, graphs, LAD tables, and logs stream continuously on the **UTC Real Time Clock**, while competition task timelines operate on independent **Mission Elapsed Time (MET)** starting from `0` on operator command.
 
 ---
 
 ## Mission Interface Gallery
 
-### 1. Main Teleoperation & Subsystem HUD
+### 1. Operating Modes Master Dashboard (`HEALTH / OVERVIEW`)
+The central operations screen integrating 9 tabbed operational layouts (`HEALTH / OVERVIEW`, `CAMERAS`, `TELEOP`, `NAV / AUTONOMY`, `MANIPULATOR`, `SCIENCE`, `MAINTENANCE`, `SAFETY / COMM`, `Full Mission Master Time Strip`). Features the Rover Master Health & Anomaly Watchdog, the real-time **Main 20V Bus & Pack Voltages** graph streaming on the continuous UTC Real Time Clock, the Power System LAD Table, and the embedded **Rover MQTT Live System Logs Console**.
+
+![Operating Modes Master Dashboard](docs/images/screenshot-clean-modes-dashboard.png)
+
+---
+
+### 2. Main Teleoperation & Subsystem HUD
 The master teleoperation dashboard integrating real-time IMU artificial horizon, robotic arm manipulator controls, subsystem power distribution strip, and live battery states on the upper HUD.
 
 ![Orion VI Main Teleoperation Display](docs/images/screenshot-clean-teleop-display.png)
 
 ---
 
-### 2. 5S Li-ion Battery Diagnostics & Health Monitoring
+### 3. 5S Li-ion Battery Diagnostics & Health Monitoring
 Factual **20.1V – 20.2V** nominal operating plateau monitoring with individual module health badges, parallel bus balance tracking, and standalone diagnostics window with a **14V – 22V** trend graph.
 
 <p align="center">
@@ -52,7 +60,7 @@ Factual **20.1V – 20.2V** nominal operating plateau monitoring with individual
 
 ---
 
-### 3. 10-Camera Flexible Layout & Reconnect Watchdog
+### 4. 10-Camera Flexible Layout & Reconnect Watchdog
 Integrated **Flexible Layout** tab (`rover_cameras_flex`) within Rover Displays. Features primary hero view (Mast Camera), 9 auxiliary feeds, 5-second automatic reconnect watchdog, and independent sub-window popouts for multi-monitor command desks.
 
 ![10-Camera Flexible Layout in Rover Displays](docs/images/screenshot-10-cameras-flexible-layout-mixed.png)
@@ -62,7 +70,9 @@ Integrated **Flexible Layout** tab (`rover_cameras_flex`) within Rover Displays.
   <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Standalone Camera Popout Window" width="38%" />
 </p>
 
-### 4. 5GHz RF Comms & Dedicated Diagnostics
+---
+
+### 5. 5GHz RF Comms & Dedicated Diagnostics
 Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, packet loss) with real-time health indicator and detached popout diagnostics window (`antenna-details.html`).
 
 <p align="center">
@@ -71,8 +81,18 @@ Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, p
 
 ---
 
-### 5. Native Open MCT Timelines, Pure Per-Mission MET & In-App Configurator
-Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls, zero-drift activity anchors, pure Mission Elapsed Time (MET) coordination, per-task independent MET timers, separate overall mission MET, and zero-code in-app timeline customization:
+### 6. Native Open MCT Timelines, Decoupled Real-Time Clock & Pure Per-Mission MET
+Full integration with native NASA Open MCT timeline engines, featuring authentic swimlane visuals, zero-drift activity anchors, decoupled Real Time Clock operation, independent per-task MET timers, separate overall mission MET, and zero-code in-app timeline customization:
+
+* **Decoupled Real Time Clock for Telemetry & Graphs**: All telemetry graphs (`Main 20V Bus & Pack Voltages`, `Pitch & Roll Attitude Trend`, `Drive Motor Currents`), display layouts (`disp_overview`, `disp_nav`, `disp_teleop`, etc.), LAD tables, and live logs run continuously on the **UTC Real Time Clock** (`local` clock, `utc` time system). Task state changes (pausing, stopping, resetting) never freeze or disrupt real-time telemetry streaming.
+* **Authentic Native Open MCT Visuals**: Retains 100% native Open MCT `plan.view` (`openmct.plugins.PlanLayout`), `time-strip.view`, and `timelist.view` rendering:
+  * Authentic swimlane headers (`MET`, `Safety`, `Drive`, `Science`, `Arm`).
+  * Authentic rounded SVG activity pills styled with Open MCT's official telemetry color palette.
+  * Native D3 time-axis ruler and the triangular `.nowMarker` time needle tracking across elapsed time.
+* **In-Timeline Interactive Controls Bar**: Positioned cleanly directly above the native plan swimlanes without disrupting layout geometry:
+  * Control buttons: `▶ START`, `⏸ HOLD`, `▶ RESUME`, `✓ DONE`, `⏭ SKIP`, `⏹ STOP`, `↺ RESET`, and `⚙ EDIT`.
+  * Task selector dropdown, live judges' remaining countdown (`REM: 39:59`), and active task MET (`TASK MET T+00:01`).
+  * **Context-Aware Embedding**: When embedded inside composite display layouts (like the `NAV / AUTONOMY` operating mode), the plan renders purely as a native swimlane view without redundant toolbar wrappers.
 * **Zero Execution on App Opening**: When opening the application or refreshing, no mission or timeline runs automatically. All 4 competition tasks (`Navigation`, `Science`, `Maintenance`, `Probing`) and the overall mission strictly initialize in `IDLE` standby with `metMs = 0`, cursor anchored at `0` (the first activity block), bounds `{ start: 0, end: limitMs }`, and conductor mode `'fixed'`.
 * **Independent Per-Mission MET Starting on Operator Start**:
   * Each competition task maintains its own independent Mission Elapsed Time (MET) clock starting from `0` only when the operator explicitly clicks `▶ START` for that specific task.
@@ -80,43 +100,29 @@ Full integration with native NASA Open MCT timeline engines, featuring interacti
   * Starting Science runs Science MET from 0 while Navigation continues its own clock independently.
   * Pausing (`⏸ HOLD`) or stopping (`⏹ STOP`) freezes that task's MET and cursor instantaneously with zero drift.
   * Resetting (`↺ RESET`) returns that task to `IDLE` standby with MET `0` and anchors the cursor at the beginning of the first block.
-* **Separate Overall Mission MET**: Overall Mission MET runs continuously across the rover operation session from the moment the first task is initiated. It persists independently across task switches, pauses, and resets. Both **OVERALL MISSION MET** (`+HH:mm:ss`) and active **TASK MET** (`+HH:mm:ss`) are displayed side-by-side on the top HUD banner and timeline toolbars.
-* **Pure MET Master & Task Timelines**: All timelines (both individual task plans and the master `timeline_mission` / "Full Mission Master Time Strip") operate on Mission Elapsed Time (`timeSystem: 'met'`), permanently anchored at the beginning of the first activity block (`bounds.start = 0`). The view does **not** slide or drift off the screen as time progresses.
-* **Dual Telemetry Domain Hints**: All telemetry points expose both `utc` (domain 1) and `met` (domain 2) hints in `telemetry.values`, completely preventing Open MCT metadata mismatch warnings across any active time system.
-* **Clean Terminal & Diagnostic Logging**: All boilerplate meta-messages (such as `"Launching Electron - Zero Installation Required..."`) have been eliminated from `start.bat`, `start.ps1`, and startup scripts. Electron console filtering suppresses internal framework noise, deprecation warnings, and library duplicate logs. Only relevant messages for the operator and diagnostics (`[Orion Gateway]`, `[Rover]`, warnings, and errors) are displayed in the terminal.
-* **Interactive Mission Timeline Controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`)**: Operators can start and control competition runs directly from the timeline view header or persistent top banner. Starting anchors the task's `t0 = Date.now()`, automatically locks Open MCT Time Conductor bounds to the task duration, and dynamically re-anchors Gantt activities in real time.
-* **In-App Milestone & Activity Editor Modal (`⚙ EDIT TIMELINE`)**: A full-featured aerospace configuration dialog accessible from any timeline or the top banner. Operators can add new milestones, modify activity names, edit durations in minutes, reassign subsystem swimlanes (`Drive`, `Arm`, `Science`, `Safety`, `Power`), pick colors, and reorder steps. Changes are saved to `localStorage` and immediately update Open MCT Gantt charts and Time Strips without reloading. Includes a 1-click `↺ RESET TO ERC DEFAULTS` button.
-* **In-App Timeline Preset Switcher**: Seamlessly switch between ERC 2026 competition tasks:
-  * 🧭 **Navigation Traverse Plan** (~35 min)
-  * 🔬 **Science Task Plan** (~40 min)
-  * 🔧 **Maintenance Task Plan** (~30 min)
-  * 🎯 **Probing Task Plan** (~32 min)
-* **Native Master Time Strip (`type: 'time-strip'`)**: Stacks multi-domain mission plans (`plan_nav`, `plan_science`) and live telemetry plots (`plot_bus_voltage`, `plot_wheel_currents`) along a unified, synchronized time axis with a moving real-time Conductor cursor.
-* **Native Plan Layouts (`type: 'plan'`)**: High-performance canvas-rendered swimlanes (`Safety`, `Drive`, `Science`, `Arm`) with NASA-STD-3001 aerospace color coding, clickable activities, and full Conductor bounds synchronization.
+* **Separate Overall Mission MET**: Overall Mission MET runs continuously across the rover operation session from the moment the first task is initiated. It persists independently across task switches, pauses, and resets. Both **OVERALL MISSION MET** (`+HH:mm:ss`) and active **TASK MET** (`+HH:mm:ss`) are displayed on the top HUD indicator and in-timeline toolbars.
+* **Native Master Time Strip (`type: 'time-strip'`)**: Stacks multi-domain mission plans (`plan_nav`, `plan_science`) and live telemetry plots (`plot_bus_voltage`, `plot_wheel_currents`) along a unified, synchronized time axis operating on UTC Real Time Clock with a moving real-time Conductor cursor.
+* **In-App Milestone & Activity Editor Modal (`⚙ EDIT TIMELINE`)**: A full-featured aerospace configuration dialog accessible from any timeline. Operators can add new milestones, modify activity names, edit durations in minutes, reassign subsystem swimlanes (`Drive`, `Arm`, `Science`, `Safety`, `Power`), pick colors, and reorder steps. Changes are saved to `localStorage` and immediately update Open MCT plans and Time Strips without reloading. Includes a 1-click `↺ RESET TO ERC DEFAULTS` button.
 * **Universal Expanded View "X" Close Button**: All "Large View" expansions, flexible layout previews, modals, and popup inspectors open cleanly and reliably close immediately upon clicking the top-right "X" button, clicking the backdrop, or pressing `Escape`.
 
 <p align="center">
-  <img src="docs/images/screenshot-timeline-idle.png" alt="Timeline Standby State Awaiting Initiation" width="49%" />
-  <img src="docs/images/screenshot-timeline-running.png" alt="Active Running Timeline Anchored to Mission Start" width="49%" />
+  <img src="docs/images/screenshot-openmct-plan-timeline.png" alt="Native Open MCT Plan Layout in Standby" width="49%" />
+  <img src="docs/images/screenshot-timeline-running.png" alt="Native Open MCT Plan Running with Controls Bar" width="49%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/screenshot-timeline-editor.png" alt="In-App Mission Timeline Configurator Modal" width="85%" />
+  <img src="docs/images/screenshot-openmct-time-strip.png" alt="Native Open MCT Full Mission Master Time Strip" width="49%" />
+  <img src="docs/images/screenshot-modes-nav-plan.png" alt="Embedded Native Plan in NAV / AUTONOMY Operating Mode" width="49%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/screenshot-timeline-customized.png" alt="Dynamically Customized Plan Layout" width="49%" />
-  <img src="docs/images/screenshot-modes-nav-plan.png" alt="Embedded Plan in Nav Operating Mode" width="49%" />
-</p>
-
-<p align="center">
-  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Activity Time List" width="49%" />
-  <img src="docs/images/screenshot-expanded-view-overlay.png" alt="Responsive Full-Size Expanded View Overlay with X Button" width="49%" />
+  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Open MCT Activity Time List" width="49%" />
+  <img src="docs/images/screenshot-timeline-editor.png" alt="In-App Mission Timeline Configurator Modal" width="49%" />
 </p>
 
 ---
 
-### 6. Rover MQTT Live System Logs Console (`HEALTH / OVERVIEW`)
+### 7. Rover MQTT Live System Logs Console (`HEALTH / OVERVIEW`)
 A dedicated, real-time aerospace logging terminal embedded directly into the master **HEALTH / OVERVIEW** display layout (`disp_overview`) and available as a standalone Open MCT domain object (`rover_logs_console`).
 
 * **Live Ingestion Pipeline**: Ingests streaming text and JSON log messages transmitted from the rover over MQTT (default topic `rover/logs/#`, configurable via `MQTT_LOG_TOPIC` environment variable).
@@ -186,12 +192,12 @@ In mission-critical aerospace telemetry, numbers must render with **fixed tabula
 
 ---
 
-## Subsystems Architecture
+## Subsystems Architecture & Telemetry Data Flow
 
 ```mermaid
 flowchart TD
     subgraph Rover ["Orion VI Rover (Physical / Simulation)"]
-        subgraph PowerSub ["Power Subsystem"]
+        subgraph PowerSub ["Power Subsystem (BMS)"]
             B1["Pack 1 (5S Li-ion)"]
             B2["Pack 2 (5S Li-ion)"]
             B3["Pack 3 (5S Li-ion)"]
@@ -199,39 +205,54 @@ flowchart TD
             Bus["20V DC Main Power Bus"]
         end
         Cams["10x Downlink Video Cameras"]
-        Nav["Autonomous Nav & IMU"]
+        Nav["Autonomous Nav, IMU & RTAB-Map"]
         Arm["6-DoF Manipulator"]
+        LogsNode["Rover Logging Daemon"]
         Broker["Mosquitto MQTT Broker (192.168.1.1:1883)"]
         
-        PowerSub -->|"Power/feedback"| Broker
+        PowerSub -->|"Power/feedback & rover/power/telemetry"| Broker
         Nav -->|"rover/nav/#"| Broker
         Arm -->|"rover/arm/#"| Broker
+        LogsNode -->|"rover/logs/#"| Broker
     end
 
     subgraph GCS_Backend ["Ground Station Gateway (Node.js/Express :8088)"]
-        Bridge["MQTT TCP Bridge"]
+        Bridge["MQTT TCP Bridge (mqtt-bridge.js)"]
         Gateway["Telemetry Gateway & Ring Buffers"]
         WSServer["WebSocket Realtime Feed (/realtime)"]
+        WSBridge["WebSocket MQTT Bridge (/mqtt-bridge)"]
         HTTPServer["Static & Historical REST API (/history, /api)"]
         
         Broker <==>|"TCP Socket"| Bridge
         Bridge --> Gateway
         Gateway --> WSServer
+        Bridge --> WSBridge
         Gateway --> HTTPServer
     end
 
     subgraph GCS_Frontend ["Open MCT Mission Control (Electron / Browser)"]
         Shell["Open MCT UI Shell (Aerospace Theme)"]
         
-        subgraph Plugins ["Custom Orion Plugins"]
+        subgraph TimeEngines ["Decoupled Time Systems"]
+            RTC["UTC Real Time Clock (local, utc)\nContinuous 30m Window"]
+            TaskClock["Task MET Engine (orion-task-clock-plugin.js)\nIndependent Start at 0 per Task"]
+        end
+        
+        subgraph DisplaysViews ["Displays, Views & Operating Modes"]
+            ModesView["Operating Modes (disp_overview, disp_nav...)"]
+            PlotsView["UTC Telemetry Plots & LAD Tables"]
+            LogsView["Rover MQTT Live Logs Console"]
+            PlanView["Native Plan Layouts (Safety, Drive, Science, Arm)"]
+            TimeStripView["Full Mission Master Time Strip"]
+        end
+
+        subgraph CustomPlugins ["Custom Orion Plugins"]
             P_Batt["OrionBatteryPlugin (Top HUD & Health)"]
             P_Cam["OrionCameraMosaicPlugin (Flexible Layout)"]
             P_RF["OrionAntennaPlugin (5GHz Signal)"]
             P_3D["OrionModelPlugin (Three.js 3D Rover)"]
             P_Exc["OrionExceptionEngine (Master Caution/Warn)"]
-            P_Clock["OrionTaskClockPlugin (MET / ERC Timers)"]
             P_Modes["OrionModesPlugin (Tabbed Operating Layouts)"]
-            P_Logs["OrionLogConsolePlugin (Rover MQTT Logs)"]
         end
 
         subgraph SecondaryWindows ["Independent Windows"]
@@ -240,9 +261,18 @@ flowchart TD
             Win_Cam["Detached Camera Views (camera-view.html)"]
         end
 
-        WSServer <==>|"WebSocket"| Plugins
-        HTTPServer <==>|"HTTP Fetch"| Plugins
-        Plugins --> Shell
+        WSServer <==>|"WebSocket"| CustomPlugins
+        WSBridge <==>|"WebSocket"| P_Batt
+        WSBridge <==>|"WebSocket"| LogsView
+        HTTPServer <==>|"HTTP Fetch"| CustomPlugins
+        
+        RTC --> PlotsView
+        RTC --> LogsView
+        RTC --> TimeStripView
+        TaskClock --> PlanView
+        
+        CustomPlugins --> Shell
+        DisplaysViews --> Shell
         P_Batt <==>|"BroadcastChannel ('orion-battery-sync')"| Win_Batt
         P_Cam -->|"window.open"| Win_Cam
         P_RF -->|"window.open"| Win_RF
@@ -255,7 +285,7 @@ flowchart TD
 
 For complete engineering details, see the dedicated guides in the [`docs/`](docs/) directory:
 
-* [**Architecture & Protocol Guide**](docs/ARCHITECTURE.md): Backend gateway, MQTT bridge, FIFO ring-buffers, and multi-window state synchronization.
+* [**Architecture & Protocol Guide**](docs/ARCHITECTURE.md): Backend gateway, MQTT bridge, FIFO ring-buffers, decoupled clock engine, and multi-window state synchronization.
 * [**Battery Subsystem Guide**](docs/BATTERY_SUBSYSTEM.md): 5S Li-ion battery curves, 20.1V–20.2V calibration, fault isolation thresholds, and diagnostics UI.
 * [**Camera System Guide**](docs/CAMERA_SYSTEM.md): 10-camera flexible layout, reconnect watchdog mechanism, streaming architecture, and snapshotting.
 * [**Telemetry Dictionary**](docs/TELEMETRY_DICTIONARY.md): Comprehensive table of telemetry identifiers, units, limits, and payload schemas.
@@ -270,14 +300,14 @@ The GCS includes automated headless Electron verification scripts:
 # Verify timeline initiation standby gating & Rover MQTT Live Logs console
 $env:TEST_RUN="test_timeline_and_logs"; & "node_modules\electron\dist\electron.exe" .
 
+# Verify native Open MCT Plan layouts, Time Strips, Timelists & Nav embedded plan
+$env:TEST_RUN="test_timeline"; & "node_modules\electron\dist\electron.exe" .
+
 # Verify battery telemetry, top panel indicators & diagnostics window
 $env:TEST_RUN="test_battery"; & "node_modules\electron\dist\electron.exe" .
 
 # Verify 10-camera flexible layout & reconnect watchdog countdown
 $env:TEST_RUN="test_cameras"; & "node_modules\electron\dist\electron.exe" .
-
-# Verify native Open MCT Plan layouts, Time Strips & Timelists
-$env:TEST_RUN="test_timeline"; & "node_modules\electron\dist\electron.exe" .
 
 # Full end-to-end telemetry ingestion test
 $env:TEST_RUN="e2e"; & "node_modules\electron\dist\electron.exe" .

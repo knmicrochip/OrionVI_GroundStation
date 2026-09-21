@@ -156,41 +156,41 @@ The telemetry and timeline systems integrate native Open MCT plugins with Orion'
 2. **Independent Per-Mission MET Clocks**:
    - **Zero Launch Execution**: On application launch or page refresh, all competition tasks (`navigation`, `science`, `maintenance`, `probing`) and the overall mission strictly initialize in `IDLE` standby with `metMs = 0`, cursor locked at `00:00:00`, and bounds `{ start: 0, end: limitMs }`. No task timeline ever runs automatically upon opening the application.
    - **Independent Start & Timers**: Each ERC mission maintains its own independent state (`IDLE`, `RUNNING`, `HELD`, `STOPPED`), `t0` timestamp, hold accumulator (`hold_s`), and active step index. Each mission's MET clock starts at `0` strictly when the operator clicks `▶ START` for that specific task. Starting Navigation does not affect Science, Maintenance, or Probing.
-   - **Dedicated MET Plan & Gantt Views**: When navigating specifically to dedicated task plans (`#/browse/orion.taxonomy:plan_*`), the view operates on Mission Elapsed Time (`timeSystem: 'met'`) permanently anchored at `0` (the first activity block), with bounds locked to `{ start: 0, end: limitMs }`. Orion provides both the native Open MCT Plan view and a dedicated Mission Gantt Chart view (`orion.gantt.view`).
-   - **Zero Motion When Inactive**: While a task is in `IDLE`, `HELD`, or `STOPPED` state, its MET cursor and needle indicators remain completely motionless until explicitly started or resumed.
+    - **Dedicated MET Plan Views**: When navigating specifically to dedicated task plans (`#/browse/orion.taxonomy:plan_*`), the view operates on Mission Elapsed Time (`timeSystem: 'met'`) permanently anchored at `0` (the first activity block), with bounds locked to `{ start: 0, end: limitMs }`. Open MCT natively renders authentic swimlanes, rounded SVG activity pills, and the triangular `.nowMarker` needle, with an in-timeline controls toolbar directly integrated above the swimlanes.
+    - **Zero Motion When Inactive**: While a task is in `IDLE`, `HELD`, or `STOPPED` state, its MET cursor and needle indicators remain completely motionless until explicitly started or resumed.
 
 3. **Master Mission Time Strip (`timeline_mission`)**:
-   - Operates on the Real Time Clock (UTC Realtime), combining real-time telemetry plots with active and future task plans. When tasks are unstarted, their activities are parked in standby. Once a task is started, its activities align with the operator's actual execution time window.
+    - Operates on the Real Time Clock (UTC Realtime), combining real-time telemetry plots with active and future task plans. When tasks are unstarted, their activities are parked in standby. Once a task is started, its activities align with the operator's actual execution time window.
 
 4. **Dual Telemetry Domain Hints**:
-   - All telemetry objects expose both `utc` (domain 1) and `met` (domain 2) hints in `telemetry.values`, completely preventing Open MCT metadata mismatch warnings across any active time system.
+    - All telemetry objects expose both `utc` (domain 1) and `met` (domain 2) hints in `telemetry.values`, completely preventing Open MCT metadata mismatch warnings across any active time system.
 
 5. **Separate Overall Mission MET**:
-   - Runs continuously and independently across the entire rover deployment session from the moment the first task is initiated.
-   - Displayed alongside active Task MET in both the top HUD banner (`OVERALL MISSION MET: +HH:mm:ss | TASK MET: +HH:mm:ss`) and the in-timeline control toolbars.
+    - Runs continuously and independently across the entire rover deployment session from the moment the first task is initiated.
+    - Displayed alongside active Task MET in both the top HUD banner (`OVERALL MISSION MET: +HH:mm:ss | TASK MET: +HH:mm:ss`) and the in-timeline control toolbars.
 
 6. **Interactive Controls & In-App Milestone Editor**:
-   - In-timeline controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`) allow instant task state transitions.
-   - The in-app modal (`⚙ EDIT TIMELINE`) enables real-time adjustments to milestone steps, durations, swimlanes, and colors, saving directly to local storage and re-rendering Gantt charts and Time Strips instantly.
+    - In-timeline controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`) allow instant task state transitions.
+    - The in-app modal (`⚙ EDIT TIMELINE`) enables real-time adjustments to milestone steps, durations, swimlanes, and colors, saving directly to local storage and re-rendering plans and Time Strips instantly.
 
 7. **Time Strip (`openmct.plugins.Timeline`)**:
-   - Acts as a container (`type: 'time-strip'`) that composes multiple plans and telemetry plots.
-   - All stacked child objects share a common synchronized time axis with a moving vertical current-time indicator.
+    - Acts as a container (`type: 'time-strip'`) that composes multiple plans and telemetry plots.
+    - All stacked child objects share a common synchronized time axis with a moving vertical current-time indicator.
 
 8. **Plan Layout (`openmct.plugins.PlanLayout`)**:
-   - Provides `type: 'plan'`. Activities are provided via `selectFile.body` grouped into categories (`Safety`, `Drive`, `Science`, `Arm`).
-   - Dynamically bounds-checked against the Time Conductor (`viewBounds.start`, `viewBounds.end`) and renders responsive activity blocks.
+    - Provides `type: 'plan'`. Activities are provided via `selectFile.body` grouped into categories (`Safety`, `Drive`, `Science`, `Arm`).
+    - Dynamically bounds-checked against the Time Conductor (`viewBounds.start`, `viewBounds.end`) and renders responsive activity blocks.
 
 9. **Time List (`openmct.plugins.Timelist`)**:
-   - Provides `type: 'timelist'`. Formats milestone activities into a sortable table with relative offsets (`+HH:MM:SS` past, `-HH:MM:SS` upcoming).
+    - Provides `type: 'timelist'`. Formats milestone activities into a sortable table with relative offsets (`+HH:MM:SS` past, `-HH:MM:SS` upcoming).
 
 <p align="center">
   <img src="images/screenshot-overview-health-logs.png" alt="Real-Time Health Overview with Live Telemetry Graph, LAD Table, and System Logs Console" width="85%" />
 </p>
 
 <p align="center">
-  <img src="images/screenshot-timeline-idle.png" alt="Timeline Standby State Awaiting Operator Initiation" width="49%" />
-  <img src="images/screenshot-timeline-running.png" alt="Active Running Timeline Anchored to Mission Start" width="49%" />
+  <img src="images/screenshot-openmct-plan-timeline.png" alt="Native Open MCT Plan Layout" width="49%" />
+  <img src="images/screenshot-timeline-running.png" alt="Active Running Timeline with In-Timeline Controls" width="49%" />
 </p>
 
 <p align="center">
@@ -198,13 +198,13 @@ The telemetry and timeline systems integrate native Open MCT plugins with Orion'
 </p>
 
 <p align="center">
-  <img src="images/screenshot-timeline-customized.png" alt="Dynamically Customized Plan Layout" width="49%" />
+  <img src="images/screenshot-openmct-time-strip.png" alt="Native Open MCT Master Time Strip" width="49%" />
   <img src="images/screenshot-modes-nav-plan.png" alt="Embedded Plan in Nav Operating Mode" width="49%" />
 </p>
 
 <p align="center">
-  <img src="images/screenshot-openmct-time-strip.png" alt="Native Open MCT Master Time Strip" width="49%" />
   <img src="images/screenshot-openmct-timelist.png" alt="Native Open MCT Time List" width="49%" />
+  <img src="images/screenshot-timeline-customized.png" alt="Dynamically Customized Plan Layout" width="49%" />
 </p>
 
 ---
