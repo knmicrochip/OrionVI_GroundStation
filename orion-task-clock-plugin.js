@@ -146,6 +146,9 @@
         }
 
         getTemplate() {
+            if (typeof window !== 'undefined' && window.OrionTimelineStore) {
+                return window.OrionTimelineStore.getPlan(this.state.task);
+            }
             return TASK_TEMPLATES[this.state.task] || TASK_TEMPLATES.science;
         }
 
@@ -189,11 +192,14 @@
         }
 
         setTask(taskKey) {
-            if (!TASK_TEMPLATES[taskKey]) return;
+            const normKey = (typeof window !== 'undefined' && window.OrionTimelineStore)
+                ? window.OrionTimelineStore.normalizeKey(taskKey)
+                : taskKey;
             if (this.state.state === 'RUNNING') return; // Don't change active running task
 
-            this.state.task = taskKey;
-            this.state.limit_s = TASK_TEMPLATES[taskKey].defaultDurationS;
+            this.state.task = normKey;
+            const tpl = this.getTemplate();
+            this.state.limit_s = tpl.defaultDurationS || 2100;
             this.state.stepIndex = 0;
             this.state.steps = {};
             this.saveState();
@@ -225,15 +231,21 @@
 
             this.saveState();
 
-            // Lock Open MCT Time Conductor bounds to [t0, t0 + limit_s * 1000]
+            // Lock Open MCT Time Conductor bounds to [t0 - 60s, t0 + limit_s * 1000 + 60s]
             if (openmct && openmct.time) {
                 try {
-                    const startMs = now;
-                    const endMs = now + (this.state.limit_s * 1000);
+                    const leadMs = 60 * 1000;
+                    const startMs = now - leadMs;
+                    const endMs = now + (this.state.limit_s * 1000) + leadMs;
                     openmct.time.setMode('fixed', { start: startMs, end: endMs });
                 } catch (e) {
                     console.warn('[Task Clock] Conductor lock warning:', e);
                 }
+            }
+
+            // Re-anchor Open MCT plan bodies with the new t0
+            if (typeof window !== 'undefined' && window.OrionTimelineStore) {
+                window.OrionTimelineStore.reanchorAllPlans(openmct, now);
             }
         }
 
@@ -260,7 +272,7 @@
             this.saveState();
         }
 
-        reset() {
+        reset(openmct) {
             this.state.state = 'IDLE';
             this.state.t0 = null;
             this.state.hold_s = 0;
@@ -269,6 +281,10 @@
             this.state.stepStartTime = null;
             this.state.steps = {};
             this.saveState();
+
+            if (typeof window !== 'undefined' && window.OrionTimelineStore && openmct) {
+                window.OrionTimelineStore.reanchorAllPlans(openmct, Date.now() - 5 * 60 * 1000);
+            }
         }
 
         markStepDone() {
@@ -396,6 +412,7 @@
                 <button id="btn-task-done" style="background: #0369a1; color: #ffffff; border: 1px solid #0284c7; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer;">DONE</button>
                 <button id="btn-task-skip" style="background: #27272a; color: #cbd5e1; border: 1px solid #3f3f46; padding: 3px 6px; border-radius: 0px; font-size: 10px; font-weight: 600; cursor: pointer;">SKIP</button>
                 <button id="btn-task-stop" style="background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer;">STOP</button>
+                <button id="btn-task-edit" style="background: #1e293b; color: #38bdf8; border: 1px solid #38bdf8; padding: 3px 8px; border-radius: 0px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">⚙ EDIT</button>
             </div>
         `;
 
@@ -417,9 +434,22 @@
         const btnDone = document.getElementById('btn-task-done');
         const btnSkip = document.getElementById('btn-task-skip');
         const btnStop = document.getElementById('btn-task-stop');
+        const btnEdit = document.getElementById('btn-task-edit');
+
+        if (btnEdit) {
+            btnEdit.addEventListener('click', () => {
+                if (typeof window.openOrionTimelineEditor === 'function') {
+                    window.openOrionTimelineEditor(taskManager.state.task);
+                }
+            });
+        }
 
         select.addEventListener('change', (e) => {
             taskManager.setTask(e.target.value);
+            const baseT = taskManager.state.t0 || (Date.now() - 5 * 60 * 1000);
+            if (typeof window !== 'undefined' && window.OrionTimelineStore) {
+                window.OrionTimelineStore.reanchorAllPlans(openmct, baseT);
+            }
         });
 
         btnStart.addEventListener('click', () => {
@@ -508,10 +538,339 @@
         });
     }
 
+    function installTimelineInteractiveView(openmct) {
+        openmct.objectViews.addProvider({
+            key: 'orion.timeline.interactive',
+            name: 'Timeline Controls & View',
+            cssClass: 'icon-timeline',
+            priority: function () {
+                return 1000;
+            },
+            canView: function (domainObject) {
+                return domainObject.type === 'plan' || domainObject.type === 'time-strip' || domainObject.type === 'timelist';
+            },
+            view: function (domainObject, objectPath) {
+                let nativeViewInstance = null;
+                let cleanupSub = null;
+
+                return {
+                    show: function (element) {
+                        element.style.display = 'flex';
+                        element.style.flexDirection = 'column';
+                        element.style.height = '100%';
+                        element.style.width = '100%';
+                        element.style.overflow = 'hidden';
+
+                        // Map domain object key to task preset
+                        let currentTask = 'navigation';
+                        if (domainObject.identifier && domainObject.identifier.key) {
+                            const k = domainObject.identifier.key;
+                            if (k.includes('sci')) currentTask = 'science';
+                            else if (k.includes('maint')) currentTask = 'maintenance';
+                            else if (k.includes('prob')) currentTask = 'probing';
+                            else if (k.includes('nav')) currentTask = 'navigation';
+                        }
+
+                        // Create Top Timeline Control Toolbar
+                        const toolbar = document.createElement('div');
+                        toolbar.className = 'orion-in-timeline-toolbar';
+                        toolbar.style.cssText = `
+                            display: flex;
+                            align-items: center;
+                            justify-content: space-between;
+                            background: #181818;
+                            border-bottom: 1px solid #282828;
+                            padding: 6px 12px;
+                            box-sizing: border-box;
+                            flex-shrink: 0;
+                            height: 38px;
+                            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+                            z-index: 10;
+                            user-select: none;
+                        `;
+
+                        toolbar.innerHTML = `
+                            <!-- Left: Timeline Name & Status -->
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <div style="width: 8px; height: 8px; background: #64748b; border-radius: 0px;" id="tb-state-led"></div>
+                                <span style="font-size: 11px; font-weight: 800; color: #f8fafc; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    ${domainObject.name || 'MISSION TIMELINE'}
+                                </span>
+                                <span id="tb-state-badge" style="background: #27272a; border: 1px solid #3f3f46; color: #a1a1aa; padding: 2px 6px; font-size: 9px; font-family: monospace; font-weight: 800;">IDLE</span>
+                                <span id="tb-time-met" style="font-family: monospace; font-size: 11px; color: #38bdf8; font-weight: 700;">MET T+00:00</span>
+                                <span id="tb-time-rem" style="font-family: monospace; font-size: 10px; color: #94a3b8;">REM: --:--</span>
+                            </div>
+
+                            <!-- Middle: Active Milestone Indicator -->
+                            <div style="display: flex; align-items: center; gap: 8px; max-width: 360px; overflow: hidden;">
+                                <span style="background: #2563eb; color: #ffffff; padding: 1px 5px; font-weight: 800; font-size: 9px; border-radius: 0px;">ACTIVE STEP</span>
+                                <span id="tb-step-name" style="font-size: 11px; color: #e2e8f0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">--</span>
+                            </div>
+
+                            <!-- Right: Controls, Switcher & Edit Button -->
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <button id="tb-btn-start" style="background: #15803d; color: #ffffff; border: 1px solid #16a34a; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; text-transform: uppercase;">▶ START</button>
+                                <button id="tb-btn-hold" style="background: #b45309; color: #ffffff; border: 1px solid #d97706; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; display: none; text-transform: uppercase;">⏸ HOLD</button>
+                                <button id="tb-btn-resume" style="background: #1d4ed8; color: #ffffff; border: 1px solid #2563eb; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; display: none; text-transform: uppercase;">▶ RESUME</button>
+                                <button id="tb-btn-done" style="background: #0369a1; color: #ffffff; border: 1px solid #0284c7; padding: 3px 8px; font-size: 10px; font-weight: 700; cursor: pointer; text-transform: uppercase;">✓ DONE</button>
+                                <button id="tb-btn-skip" style="background: #27272a; color: #cbd5e1; border: 1px solid #3f3f46; padding: 3px 6px; font-size: 10px; font-weight: 600; cursor: pointer; text-transform: uppercase;">SKIP</button>
+                                <button id="tb-btn-stop" style="background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; padding: 3px 10px; font-size: 10px; font-weight: 800; cursor: pointer; text-transform: uppercase;">⏹ STOP</button>
+                                
+                                <select id="tb-task-select" style="background: #141414; color: #ffffff; border: 1px solid #333333; padding: 2px 6px; font-size: 10px; outline: none; cursor: pointer; margin-left: 4px;">
+                                    <option value="navigation">🧭 Navigation</option>
+                                    <option value="science">🔬 Science</option>
+                                    <option value="maintenance">🔧 Maintenance</option>
+                                    <option value="probing">🎯 Probing</option>
+                                </select>
+
+                                <button id="tb-btn-edit" style="background: #1e293b; color: #38bdf8; border: 1px solid #38bdf8; padding: 3px 8px; font-size: 10px; font-weight: 800; cursor: pointer; margin-left: 4px; text-transform: uppercase;">⚙ EDIT</button>
+                            </div>
+                        `;
+
+                        element.appendChild(toolbar);
+
+                        // Body Container for Native Open MCT View
+                        const bodyDiv = document.createElement('div');
+                        bodyDiv.className = 'orion-in-timeline-body';
+                        bodyDiv.style.cssText = `
+                            flex: 1;
+                            min-height: 0;
+                            width: 100%;
+                            position: relative;
+                            overflow: hidden;
+                        `;
+                        element.appendChild(bodyDiv);
+
+                        // Render native Open MCT view in bodyDiv
+                        const nativeProviders = openmct.objectViews.get(domainObject, objectPath)
+                            .filter(p => p.key !== 'orion.timeline.interactive');
+                        if (nativeProviders.length > 0) {
+                            nativeViewInstance = nativeProviders[0].view(domainObject, objectPath);
+                            nativeViewInstance.show(bodyDiv);
+                        }
+
+                        // Wire controls
+                        const led = toolbar.querySelector('#tb-state-led');
+                        const badge = toolbar.querySelector('#tb-state-badge');
+                        const met = toolbar.querySelector('#tb-time-met');
+                        const rem = toolbar.querySelector('#tb-time-rem');
+                        const stepName = toolbar.querySelector('#tb-step-name');
+
+                        const btnStart = toolbar.querySelector('#tb-btn-start');
+                        const btnHold = toolbar.querySelector('#tb-btn-hold');
+                        const btnResume = toolbar.querySelector('#tb-btn-resume');
+                        const btnDone = toolbar.querySelector('#tb-btn-done');
+                        const btnSkip = toolbar.querySelector('#tb-btn-skip');
+                        const btnStop = toolbar.querySelector('#tb-btn-stop');
+                        const selectTask = toolbar.querySelector('#tb-task-select');
+                        const btnEdit = toolbar.querySelector('#tb-btn-edit');
+
+                        selectTask.value = taskManager.state.task || currentTask;
+
+                        selectTask.addEventListener('change', (e) => {
+                            taskManager.setTask(e.target.value);
+                            const targetKey = `plan_${e.target.value === 'navigation' ? 'nav' : e.target.value}`;
+                            if (window.location.hash.includes('plan_')) {
+                                window.location.hash = `#/browse/orion.taxonomy:${targetKey}`;
+                            }
+                        });
+
+                        btnStart.addEventListener('click', () => {
+                            taskManager.start(openmct);
+                            if (openmct && openmct.notifications) {
+                                openmct.notifications.info(`Mission Timeline Started: ${taskManager.getTemplate().name}`);
+                            }
+                        });
+
+                        btnHold.addEventListener('click', () => {
+                            taskManager.hold();
+                            if (openmct && openmct.notifications) {
+                                openmct.notifications.alert('Timeline paused on judge HOLD.');
+                            }
+                        });
+
+                        btnResume.addEventListener('click', () => {
+                            taskManager.resume();
+                            if (openmct && openmct.notifications) {
+                                openmct.notifications.info('Timeline resumed.');
+                            }
+                        });
+
+                        btnDone.addEventListener('click', () => {
+                            const curr = taskManager.getCurrentStep();
+                            taskManager.markStepDone();
+                            if (curr && openmct && openmct.notifications) {
+                                openmct.notifications.info(`Step completed: ${curr.name}`);
+                            }
+                        });
+
+                        btnSkip.addEventListener('click', () => {
+                            const curr = taskManager.getCurrentStep();
+                            taskManager.skipStep();
+                            if (curr && openmct && openmct.notifications) {
+                                openmct.notifications.info(`Step skipped: ${curr.name}`);
+                            }
+                        });
+
+                        btnStop.addEventListener('click', () => {
+                            taskManager.stop();
+                            if (openmct && openmct.notifications) {
+                                openmct.notifications.alert('Mission timeline stopped.');
+                            }
+                        });
+
+                        btnEdit.addEventListener('click', () => {
+                            if (typeof window.openOrionTimelineEditor === 'function') {
+                                window.openOrionTimelineEditor(selectTask.value || taskManager.state.task);
+                            }
+                        });
+
+                        function updateToolbar(state) {
+                            const isRunning = state.state === 'RUNNING';
+                            const isHeld = state.state === 'HELD';
+                            const isStopped = state.state === 'STOPPED';
+
+                            if (isRunning) {
+                                badge.textContent = 'RUNNING';
+                                badge.style.background = '#14532d';
+                                badge.style.borderColor = '#166534';
+                                badge.style.color = '#86efac';
+                                led.style.background = '#22c55e';
+                                btnStart.style.display = 'none';
+                                btnHold.style.display = 'inline-block';
+                                btnResume.style.display = 'none';
+                            } else if (isHeld) {
+                                badge.textContent = 'HELD';
+                                badge.style.background = '#78350f';
+                                badge.style.borderColor = '#d97706';
+                                badge.style.color = '#fde68a';
+                                led.style.background = '#f59e0b';
+                                btnStart.style.display = 'none';
+                                btnHold.style.display = 'none';
+                                btnResume.style.display = 'inline-block';
+                            } else if (isStopped) {
+                                badge.textContent = 'STOPPED';
+                                badge.style.background = '#3f1a1a';
+                                badge.style.borderColor = '#7f1d1d';
+                                badge.style.color = '#fca5a5';
+                                led.style.background = '#ef4444';
+                                btnStart.style.display = 'inline-block';
+                                btnHold.style.display = 'none';
+                                btnResume.style.display = 'none';
+                            } else {
+                                badge.textContent = 'IDLE';
+                                badge.style.background = '#27272a';
+                                badge.style.borderColor = '#3f3f46';
+                                badge.style.color = '#a1a1aa';
+                                led.style.background = '#64748b';
+                                btnStart.style.display = 'inline-block';
+                                btnHold.style.display = 'none';
+                                btnResume.style.display = 'none';
+                            }
+
+                            if (isRunning || isHeld || isStopped) {
+                                const elapsed = taskManager.getElapsedSeconds();
+                                const remS = taskManager.getRemainingSeconds();
+                                const elM = Math.floor(elapsed / 60);
+                                const elS = elapsed % 60;
+                                met.textContent = `MET T+${String(elM).padStart(2, '0')}:${String(elS).padStart(2, '0')}`;
+                                rem.textContent = `REM: ${formatTimeRemaining(remS)}`;
+                            } else {
+                                met.textContent = 'MET T+00:00';
+                                rem.textContent = `REM: ${formatTimeRemaining(taskManager.getTemplate().defaultDurationS)}`;
+                            }
+
+                            const curr = taskManager.getCurrentStep();
+                            stepName.textContent = curr ? `${curr.name} (${curr.durationM}m)` : '(Complete / Planned)';
+                            if (selectTask.value !== state.task) {
+                                selectTask.value = state.task;
+                            }
+                        }
+
+                        cleanupSub = taskManager.subscribe(updateToolbar);
+                    },
+                    destroy: function () {
+                        if (cleanupSub) cleanupSub();
+                        if (nativeViewInstance && typeof nativeViewInstance.destroy === 'function') {
+                            nativeViewInstance.destroy();
+                        }
+                    }
+                };
+            }
+        });
+    }
+
+    function installTimelineActions(openmct) {
+        openmct.actions.register({
+            key: 'orion.timeline.start',
+            name: 'Start Mission Timeline',
+            cssClass: 'icon-play',
+            description: 'Start and anchor active timeline to current time',
+            group: 'action',
+            priority: 1,
+            appliesTo: (objectPath) => {
+                const obj = objectPath[0];
+                return obj && (obj.type === 'plan' || obj.type === 'time-strip' || obj.type === 'timelist');
+            },
+            invoke: () => {
+                taskManager.start(openmct);
+                if (openmct.notifications) {
+                    openmct.notifications.info(`Started timeline: ${taskManager.getTemplate().name}`);
+                }
+            }
+        });
+
+        openmct.actions.register({
+            key: 'orion.timeline.stop',
+            name: 'Stop Mission Timeline',
+            cssClass: 'icon-pause',
+            description: 'Halt active mission timeline execution',
+            group: 'action',
+            priority: 2,
+            appliesTo: (objectPath) => {
+                const obj = objectPath[0];
+                return obj && (obj.type === 'plan' || obj.type === 'time-strip' || obj.type === 'timelist');
+            },
+            invoke: () => {
+                taskManager.stop();
+                if (openmct.notifications) {
+                    openmct.notifications.alert('Mission timeline stopped.');
+                }
+            }
+        });
+
+        openmct.actions.register({
+            key: 'orion.timeline.edit',
+            name: 'Edit Timeline Milestones',
+            cssClass: 'icon-pencil',
+            description: 'Customize timeline steps, durations, and swimlanes',
+            group: 'action',
+            priority: 3,
+            appliesTo: (objectPath) => {
+                const obj = objectPath[0];
+                return obj && (obj.type === 'plan' || obj.type === 'time-strip' || obj.type === 'timelist');
+            },
+            invoke: (objectPath) => {
+                const obj = objectPath[0];
+                let k = 'navigation';
+                if (obj.identifier && obj.identifier.key) {
+                    if (obj.identifier.key.includes('sci')) k = 'science';
+                    else if (obj.identifier.key.includes('maint')) k = 'maintenance';
+                    else if (obj.identifier.key.includes('prob')) k = 'probing';
+                }
+                if (typeof window.openOrionTimelineEditor === 'function') {
+                    window.openOrionTimelineEditor(k);
+                }
+            }
+        });
+    }
+
     // Orion Task Clock Plugin export
     function OrionTaskClockPlugin() {
         return function install(openmct) {
             installTopBanner(openmct);
+            installTimelineInteractiveView(openmct);
+            installTimelineActions(openmct);
         };
     }
 

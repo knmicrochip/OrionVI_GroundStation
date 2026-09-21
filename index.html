@@ -24,6 +24,7 @@
     <script src="orion-modes-plugin.js"></script>
     <script src="orion-battery-plugin.js"></script>
     <script src="orion-antenna-plugin.js"></script>
+    <script src="orion-timeline-editor-dialog.js"></script>
     <script src="orion-model-plugin.js"></script>
 
     <style>
@@ -180,14 +181,41 @@
         }
 
         /* Ensure all modal dialogs and overlays appear above menus */
+        .l-overlay-wrapper,
         .c-overlay,
         .c-modal,
         .c-dialog,
-        .c-form,
-        [class*="c-overlay"],
-        [class*="c-modal"],
-        [class*="c-dialog"] {
-            z-index: 10001 !important;
+        .c-form {
+            z-index: 10002 !important;
+        }
+
+        .c-overlay__blocker {
+            z-index: 10003 !important;
+            cursor: pointer !important;
+            pointer-events: auto !important;
+        }
+
+        .c-overlay__outer {
+            z-index: 10004 !important;
+            position: relative !important;
+        }
+
+        .c-overlay__contents {
+            z-index: 10004 !important;
+        }
+
+        /* Expanded view & modal close button: must always be on top and clickable */
+        .c-overlay__close-button,
+        .c-click-icon.c-overlay__close-button,
+        .c-overlay__close-button.icon-x,
+        button.c-overlay__close-button,
+        .icon-x {
+            z-index: 10010 !important;
+            pointer-events: auto !important;
+            cursor: pointer !important;
+            display: inline-block !important;
+            visibility: visible !important;
+            opacity: 1 !important;
         }
 
         .c-create-button--w, .l-shell__create-button, .c-create-button {
@@ -386,6 +414,24 @@
             if (!window.location.hash || window.location.hash === '#/' || window.location.hash === '#/browse') {
                 window.location.hash = '#/browse/orion.taxonomy:modes_tab';
             }
+
+            // Global close button handler: guarantees closing any expanded view, Large View, modal or overlay
+            document.addEventListener('click', function (event) {
+                const closeBtn = event.target.closest('.c-overlay__close-button, .icon-x, button[aria-label="Close"], .js-overlay-close');
+                if (closeBtn) {
+                    // If Open MCT overlay API is present, dismiss topmost active overlay
+                    if (window.openmct && window.openmct.overlays) {
+                        if (typeof window.openmct.overlays.dismissLastOverlay === 'function') {
+                            window.openmct.overlays.dismissLastOverlay();
+                        }
+                    }
+                    // Failsafe for any remaining overlay container elements
+                    const wrappers = document.querySelectorAll('.l-overlay-wrapper');
+                    if (wrappers.length > 0 && (!window.openmct || !window.openmct.overlays || !window.openmct.overlays.activeOverlays || window.openmct.overlays.activeOverlays.length === 0)) {
+                        wrappers.forEach(w => w.remove());
+                    }
+                }
+            }, true);
         }
 
         if (document.readyState === 'loading') {

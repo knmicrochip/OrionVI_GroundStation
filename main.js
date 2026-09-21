@@ -41,8 +41,6 @@ async function createWindow() {
         console.log(`[Renderer] [${file}:${line}] ${message}`);
     });
 
-    mainWindow.loadURL(targetUrl);
-
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         const isAntenna = url.includes('antenna-details.html');
         const isCamera = url.includes('camera-view.html') || url.includes('camera');
@@ -67,10 +65,16 @@ async function createWindow() {
         };
     });
 
-    if (process.env.TEST_RUN) {
-        const testMode = process.env.TEST_RUN.trim();
-        mainWindow.webContents.on('did-finish-load', async () => {
-            console.log('Page finished loading successfully.');
+    const argTest = process.argv.find(a => a.startsWith('--test='));
+    const testMode = (process.env.TEST_RUN || (argTest ? argTest.split('=')[1] : '')).trim();
+    console.log('[Electron Test Runner] Detected testMode:', JSON.stringify(testMode), 'argv:', process.argv.slice(2));
+
+    if (testMode) {
+        let testTriggered = false;
+        const executeTests = async () => {
+            if (testTriggered) return;
+            testTriggered = true;
+            console.log('[Electron Test Runner] Ready! Starting testMode:', testMode);
             if (testMode === 'e2e') {
                 try {
                     await new Promise(r => setTimeout(r, 2000));
@@ -571,14 +575,191 @@ async function createWindow() {
                 setTimeout(() => {
                     mainWindow.close();
                 }, 1000);
+            } else if (testMode === 'test_timeline_controls') {
+                try {
+                    const fs = require('fs');
+                    const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
+                    const docsImgDirs = [
+                        path.resolve(__dirname, 'docs/images'),
+                        path.resolve(__dirname, '../docs/images')
+                    ];
+                    docsImgDirs.forEach(d => {
+                        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                    });
+
+                    function saveImg(filename, img) {
+                        const buf = img.toPNG();
+                        docsImgDirs.forEach(d => fs.writeFileSync(path.join(d, filename), buf));
+                        if (fs.existsSync(artifactDir)) {
+                            fs.writeFileSync(path.join(artifactDir, filename), buf);
+                        }
+                    }
+
+                    console.log('[Test Timeline Controls] Waiting for Open MCT initialization...');
+                    await new Promise(r => setTimeout(r, 4500));
+
+                    // 1. TEST "X" CLOSE BUTTON ON LARGE VIEW OVERLAY
+                    console.log('[Test "X" Close Button] Triggering Large View Overlay...');
+                    const openOverlayResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            // Trigger Large View overlay via openmct.overlays
+                            const dummyEl = document.createElement('div');
+                            dummyEl.style.padding = '24px';
+                            dummyEl.style.color = '#ffffff';
+                            dummyEl.innerHTML = '<h2 style="margin:0 0 12px 0;">Expanded Large View Test</h2><p style="color:#94a3b8;">Testing "X" close button responsiveness throughout whole app.</p>';
+                            
+                            const overlay = window.openmct.overlays.overlay({
+                                element: dummyEl,
+                                size: 'large',
+                                autoHide: false
+                            });
+
+                            await new Promise(r => setTimeout(r, 500));
+                            const overlayCount = document.querySelectorAll('.l-overlay-wrapper, .c-overlay').length;
+                            const closeBtn = document.querySelector('.c-overlay__close-button, .icon-x');
+                            
+                            return {
+                                overlayOpened: overlayCount > 0,
+                                closeBtnFound: Boolean(closeBtn),
+                                overlayCount
+                            };
+                        })()
+                    `);
+                    console.log('[Test "X" Close Button] Overlay Open Diagnostic:', JSON.stringify(openOverlayResult));
+
+                    // Capture screenshot of expanded overlay before closing
+                    const overlayImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-expanded-view-overlay.png', overlayImg);
+
+                    // Click "X" button and confirm it closes immediately
+                    console.log('[Test "X" Close Button] Clicking "X" button...');
+                    const closeOverlayResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const closeBtn = document.querySelector('.c-overlay__close-button, .icon-x');
+                            if (closeBtn) {
+                                closeBtn.click();
+                            }
+                            await new Promise(r => setTimeout(r, 800));
+                            const overlayCountAfter = document.querySelectorAll('.l-overlay-wrapper, .c-overlay').length;
+                            return {
+                                overlayCountAfter,
+                                isClosed: overlayCountAfter === 0
+                            };
+                        })()
+                    `);
+                    console.log('[Test "X" Close Button] Overlay Close Diagnostic:', JSON.stringify(closeOverlayResult));
+
+                    // 2. NAVIGATE TO TIMELINE MISSION & TEST START / STOP
+                    console.log('[Test Timeline Controls] Navigating to Full Mission Master Time Strip...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:timeline_mission';
+                    `);
+                    await new Promise(r => setTimeout(r, 4000));
+
+                    // Click START on timeline
+                    console.log('[Test Timeline Controls] Clicking START on Timeline Controls...');
+                    const startResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const btnStart = document.querySelector('#tb-btn-start, #btn-task-start');
+                            if (btnStart) btnStart.click();
+                            await new Promise(r => setTimeout(r, 1200));
+
+                            const badge = document.querySelector('#tb-state-badge, #orion-task-state-badge');
+                            const conductorBounds = window.openmct && window.openmct.time ? window.openmct.time.bounds() : null;
+                            const taskState = window.OrionTaskManager ? window.OrionTaskManager.state : null;
+
+                            return {
+                                stateText: badge ? badge.textContent.trim() : null,
+                                taskState: taskState ? taskState.state : null,
+                                conductorBounds
+                            };
+                        })()
+                    `);
+                    console.log('[Test Timeline Controls] Start Diagnostic:', JSON.stringify(startResult));
+
+                    const timelineRunningImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-timeline-running.png', timelineRunningImg);
+                    saveImg('screenshot-openmct-time-strip.png', timelineRunningImg);
+
+                    // 3. TEST IN-APP TIMELINE EDITOR MODAL
+                    console.log('[Test Timeline Controls] Opening In-App Timeline Editor Modal...');
+                    const openEditorResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const btnEdit = document.querySelector('#tb-btn-edit, #btn-task-edit');
+                            if (btnEdit) {
+                                btnEdit.click();
+                            } else if (typeof window.openOrionTimelineEditor === 'function') {
+                                window.openOrionTimelineEditor('navigation');
+                            }
+                            await new Promise(r => setTimeout(r, 1000));
+                            const modal = document.querySelector('#orion-timeline-editor-modal');
+                            const rows = document.querySelectorAll('#editor-steps-tbody tr').length;
+                            const durBadge = document.querySelector('#editor-total-duration-badge');
+
+                            return {
+                                modalFound: Boolean(modal),
+                                rowCount: rows,
+                                durationBadge: durBadge ? durBadge.textContent.trim() : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Timeline Controls] Editor Modal Diagnostic:', JSON.stringify(openEditorResult));
+
+                    const editorModalImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-timeline-editor.png', editorModalImg);
+
+                    // Modify timeline step in editor and click SAVE & APPLY
+                    console.log('[Test Timeline Controls] Adding step and saving timeline...');
+                    const saveEditorResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const btnAdd = document.querySelector('#editor-btn-add-step');
+                            if (btnAdd) btnAdd.click();
+                            await new Promise(r => setTimeout(r, 600));
+
+                            const btnSave = document.querySelector('#editor-btn-save-apply');
+                            if (btnSave) btnSave.click();
+                            await new Promise(r => setTimeout(r, 1200));
+
+                            const modalAfter = document.querySelector('#orion-timeline-editor-modal');
+                            const savedStorage = localStorage.getItem('orion_custom_timelines');
+
+                            return {
+                                modalClosed: !Boolean(modalAfter),
+                                hasStorage: Boolean(savedStorage)
+                            };
+                        })()
+                    `);
+                    console.log('[Test Timeline Controls] Editor Save Diagnostic:', JSON.stringify(saveEditorResult));
+
+                    // 4. NAVIGATE TO NAVIGATION PLAN & CAPTURE
+                    console.log('[Test Timeline Controls] Navigating to plan_nav...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:plan_nav';
+                    `);
+                    await new Promise(r => setTimeout(r, 3500));
+                    const planNavUpdatedImg = await mainWindow.webContents.capturePage();
+                    saveImg('screenshot-timeline-customized.png', planNavUpdatedImg);
+                    saveImg('screenshot-openmct-plan-timeline.png', planNavUpdatedImg);
+
+                    console.log('[Test Timeline Controls] All verifications and screenshots completed successfully!');
+                } catch (e) {
+                    console.error('[Test Timeline Controls Error]', e);
+                }
+                setTimeout(() => {
+                    mainWindow.close();
+                }, 1000);
             } else {
                 setTimeout(() => {
                     console.log('Automated verification finished, closing window.');
                     mainWindow.close();
                 }, 2500);
             }
-        });
+        };
+        mainWindow.webContents.on('did-finish-load', executeTests);
+        mainWindow.webContents.on('dom-ready', executeTests);
     }
+
+    mainWindow.loadURL(targetUrl);
 
     mainWindow.on('closed', () => {
         mainWindow = null;

@@ -71,22 +71,33 @@ Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, p
 
 ---
 
-### 5. Native Open MCT Timelines, Time Strips & Task Plans
-Full integration with native NASA Open MCT timeline engines:
+### 5. Native Open MCT Timelines, Interactive Controls & In-App Configurator
+Full integration with native NASA Open MCT timeline engines, featuring interactive mission controls and zero-code in-app timeline customization:
+* **Interactive Mission Timeline Controls (`▶ START`, `⏸ HOLD`, `▶ RESUME`, `⏹ STOP`, `↺ RESET`)**: Operators can start and control competition runs directly from the timeline view header or persistent top banner. Starting anchors `t0 = Date.now()`, automatically locks Open MCT Time Conductor bounds to the task duration, and dynamically re-anchors Gantt activities in real time.
+* **In-App Milestone & Activity Editor Modal (`⚙ EDIT TIMELINE`)**: A full-featured aerospace configuration dialog accessible from any timeline or the top banner. Operators can add new milestones, modify activity names, edit durations in minutes, reassign subsystem swimlanes (`Drive`, `Arm`, `Science`, `Safety`, `Power`), pick colors, and reorder steps. Changes are saved to `localStorage` and immediately update Open MCT Gantt charts and Time Strips without reloading. Includes a 1-click `↺ RESET TO ERC DEFAULTS` button.
+* **In-App Timeline Preset Switcher**: Seamlessly switch between ERC 2026 competition tasks:
+  * 🧭 **Navigation Traverse Plan** (~35 min)
+  * 🔬 **Science Task Plan** (~40 min)
+  * 🔧 **Maintenance Task Plan** (~30 min)
+  * 🎯 **Probing Task Plan** (~32 min)
 * **Native Master Time Strip (`type: 'time-strip'`)**: Stacks multi-domain mission plans (`plan_nav`, `plan_science`) and live telemetry plots (`plot_bus_voltage`, `plot_wheel_currents`) along a unified, synchronized time axis with a moving real-time Conductor cursor.
 * **Native Plan Layouts (`type: 'plan'`)**: High-performance canvas-rendered swimlanes (`Safety`, `Drive`, `Science`, `Arm`) with NASA-STD-3001 aerospace color coding, clickable activities, and full Conductor bounds synchronization.
-* **Display Layout Integration**: Embedded plan views within single-screen operating modes (`NAV / AUTONOMY`, `SCIENCE`, `MANIPULATOR`, `MAINTENANCE`) alongside LAD tables and telemetry graphs.
-* **Activity Time List (`type: 'timelist'`)**: Time-ordered tabular schedule showing active, past, and upcoming tasks with automatic count-up / count-down timers.
+* **Universal Expanded View "X" Close Button**: All "Large View" expansions, flexible layout previews, modals, and popup inspectors reliably close immediately upon clicking the top-right "X" button, clicking the backdrop, or pressing `Escape`.
 
-![Native Open MCT Master Time Strip](docs/images/screenshot-openmct-time-strip.png)
+![Native Open MCT Master Time Strip with Active Mission Controls](docs/images/screenshot-timeline-running.png)
 
 <p align="center">
-  <img src="docs/images/screenshot-openmct-plan-timeline.png" alt="Native Open MCT Plan Timeline" width="49%" />
+  <img src="docs/images/screenshot-timeline-editor.png" alt="In-App Mission Timeline Configurator Modal" width="85%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot-timeline-customized.png" alt="Dynamically Customized Plan Layout" width="49%" />
   <img src="docs/images/screenshot-modes-nav-plan.png" alt="Embedded Plan in Nav Operating Mode" width="49%" />
 </p>
 
 <p align="center">
-  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Open MCT Activity Time List" width="75%" />
+  <img src="docs/images/screenshot-openmct-timelist.png" alt="Native Open MCT Activity Time List" width="49%" />
+  <img src="docs/images/screenshot-expanded-view-overlay.png" alt="Responsive Expanded View Overlay with X Button" width="49%" />
 </p>
 
 ---

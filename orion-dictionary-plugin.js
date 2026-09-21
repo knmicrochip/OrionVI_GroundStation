@@ -87,6 +87,9 @@
     };
 
     function generateOpenMctPlanBody(taskKey, baseTime) {
+        if (typeof window !== 'undefined' && window.OrionTimelineStore) {
+            return window.OrionTimelineStore.generatePlanBody(taskKey, baseTime);
+        }
         const template = TASK_PLANS_DATA[taskKey] || TASK_PLANS_DATA.nav;
         const t0 = (typeof baseTime === 'number' && baseTime > 0) ? baseTime : (Date.now() - 5 * 60 * 1000);
         const body = {};
@@ -465,7 +468,7 @@
 
                     // Native Open MCT Plans
                     if (key === 'plan_nav' || key === 'plan_science' || key === 'plan_maintenance' || key === 'plan_probing') {
-                        let taskKey = 'nav';
+                        let taskKey = 'navigation';
                         if (key === 'plan_science') taskKey = 'science';
                         else if (key === 'plan_maintenance') taskKey = 'maintenance';
                         else if (key === 'plan_probing') taskKey = 'probing';
@@ -473,7 +476,7 @@
                         const activeT0 = (typeof window !== 'undefined' && window.OrionTaskManager && window.OrionTaskManager.state && window.OrionTaskManager.state.t0);
                         const body = generateOpenMctPlanBody(taskKey, activeT0);
 
-                        return Promise.resolve({
+                        const planObj = {
                             identifier: identifier,
                             name: FOLDERS[key] ? FOLDERS[key].name : key,
                             type: 'plan',
@@ -484,7 +487,9 @@
                             configuration: {
                                 clipActivityNames: true
                             }
-                        });
+                        };
+                        dynamicObjects.set(key, planObj);
+                        return Promise.resolve(planObj);
                     }
 
                     // Native Open MCT Time Strips (master mission & domain timelines)
