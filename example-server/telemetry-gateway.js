@@ -36,14 +36,16 @@ class TelemetryGateway {
         // Telemetry state store: keys exist but values start unpopulated (null)
         this.state = {};
 
-        // Only generate simulated data if sim mode is explicitly active
         if (this.isSimMode) {
             this.seedSimulatedHistory();
-            this.tickInterval = setInterval(() => this.simulateTick(Date.now()), 1000);
-        } else {
-            // In actual mode, monitor stream timeout
-            this.tickInterval = setInterval(() => this.checkTelemetryWatchdog(), 1000);
         }
+        this.tickInterval = setInterval(() => {
+            if (this.isSimMode) {
+                this.simulateTick(Date.now());
+            } else {
+                this.checkTelemetryWatchdog();
+            }
+        }, 1000);
     }
 
     checkTelemetryWatchdog() {
@@ -60,7 +62,6 @@ class TelemetryGateway {
     }
 
     seedSimulatedHistory() {
-        // Only called when isSimMode is true
         const now = Date.now();
         const stepMs = 5000;
         const seedPoints = Math.floor((15 * 60 * 1000) / stepMs);
@@ -73,7 +74,7 @@ class TelemetryGateway {
             const arr = [];
             for (let i = seedPoints; i >= 0; i--) {
                 const t = now - (i * stepMs);
-                arr.push({ id: k, utc: t, value: 19.8 });
+                arr.push({ id: k, utc: t, value: 20.16 });
             }
             this.history.set(k, arr);
         });
@@ -87,12 +88,20 @@ class TelemetryGateway {
         this.updateTelemetryPoint('rover.nav.pitch', pitch, now);
         this.updateTelemetryPoint('rover.nav.roll', roll, now);
 
-        const busV = parseFloat((19.80 + 0.1 * Math.sin(tSec * 0.1)).toFixed(2));
+        // Calibrated 5S Li-ion nominal operating voltage (~20.16V bus, individual batteries 20.12V - 20.21V)
+        const busV = parseFloat((20.16 + 0.04 * Math.sin(tSec * 0.1)).toFixed(2));
         this.updateTelemetryPoint('rover.power.bus.voltage', busV, now);
+        this.updateTelemetryPoint('rover.power.bus.current', 12.50, now);
         this.updateTelemetryPoint('rover.power.battery.1.v', parseFloat((busV + 0.02).toFixed(2)), now);
-        this.updateTelemetryPoint('rover.power.battery.2.v', parseFloat((busV - 0.01).toFixed(2)), now);
-        this.updateTelemetryPoint('rover.power.battery.3.v', parseFloat((busV + 0.01).toFixed(2)), now);
-        this.updateTelemetryPoint('rover.power.battery.4.v', parseFloat((busV - 0.02).toFixed(2)), now);
+        this.updateTelemetryPoint('rover.power.battery.2.v', parseFloat((busV - 0.04).toFixed(2)), now);
+        this.updateTelemetryPoint('rover.power.battery.3.v', parseFloat((busV + 0.05).toFixed(2)), now);
+        this.updateTelemetryPoint('rover.power.battery.4.v', parseFloat((busV - 0.01).toFixed(2)), now);
+
+        for (let i = 1; i <= 4; i++) {
+            this.updateTelemetryPoint(`rover.power.battery.${i}.soc`, 83.2, now);
+            this.updateTelemetryPoint(`rover.power.battery.${i}.i`, 3.12, now);
+            this.updateTelemetryPoint(`rover.power.battery.${i}.temp`, 28.0, now);
+        }
     }
 
     updateTelemetryPoint(id, value, utc) {
@@ -150,6 +159,9 @@ class TelemetryGateway {
 
     setSimMode(enable) {
         this.isSimMode = !!enable;
+        if (this.isSimMode && (!this.history.get('rover.power.bus.voltage') || this.history.get('rover.power.bus.voltage').length === 0)) {
+            this.seedSimulatedHistory();
+        }
         console.log(`[Gateway] Simulation mode: ${this.isSimMode ? 'ENABLED' : 'DISABLED (ACTUAL)'}`);
     }
 
@@ -186,7 +198,7 @@ class TelemetryGateway {
                 this.updateTelemetryPoint('rover.power.battery.4.temp', temp, now);
             }
 
-            // SoC calculation (5S Li-ion: 16.0V = 0%, 21.0V = 100%)
+            // SoC calculation (5S Li-ion: 16.0V = 0%, 21.0V = 100%, nominal ~20.16V = ~83.2%)
             const calcSoc = (v) => {
                 if (v === undefined || v < 5.0) return 0.0;
                 return Math.max(0.0, Math.min(100.0, ((v - 16.0) / (21.0 - 16.0)) * 100.0));

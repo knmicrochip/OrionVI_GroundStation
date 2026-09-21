@@ -54,7 +54,7 @@
         { key: 'system_sim', name: 'Rover System Simulated Charge', unit: '%', color: '#fbbf24', packKey: 'system' }
     ];
 
-    // Voltage to SOC formula for 5S Li-ion (Nominal 20V: 16.0V empty -> 21.0V full)
+    // Voltage to SOC formula for 5S Li-ion (Nominal 20.16V: 16.0V empty -> 21.0V full)
     function voltageToSoc(volts) {
         if (typeof volts !== 'number' || isNaN(volts) || volts < 5.0) {
             return 0.0;
@@ -83,13 +83,14 @@
         // Completely Independent Data Stores
         // -------------------------------------------------------------
 
-        // 1. Actual State & History (Populated strictly by real MQTT packets)
+        // 1. Actual State & History (Populated by real MQTT packets or gateway /realtime stream)
         const actualState = {
-            v1: 0.0,
-            v2: 0.0,
-            v3: 0.0,
-            v4: 0.0,
-            temp_c: -127,
+            v1: null,
+            v2: null,
+            v3: null,
+            v4: null,
+            voltage_bus: null,
+            temp_c: null,
             adcs: {
                 wl: 0,
                 wr: 0,
@@ -99,11 +100,11 @@
                 inne: 0
             },
             soc: {
-                b1: 0.0,
-                b2: 0.0,
-                b3: 0.0,
-                b4: 0.0,
-                system: 0.0
+                b1: null,
+                b2: null,
+                b3: null,
+                b4: null,
+                system: null
             },
             rawPayload: '',
             lastReceivedTime: 0,
@@ -121,11 +122,16 @@
 
         // 2. Simulated State & History (Generated strictly when simulation is turned ON)
         const simulatedState = {
-            b1: 91.5,
-            b2: 89.2,
-            b3: 93.0,
-            b4: 88.4,
-            system: 90.5
+            b1: 83.6,
+            b2: 82.4,
+            b3: 84.2,
+            b4: 83.0,
+            system: 83.3,
+            v1: 20.18,
+            v2: 20.12,
+            v3: 20.21,
+            v4: 20.15,
+            busV: 20.16
         };
 
         const simulatedHistory = {
@@ -209,8 +215,10 @@
             const sevUpper = alert.severity ? alert.severity.toUpperCase() : 'NOTICE';
             console.warn(`[Battery Alert] [${sevUpper}] ${alert.title}: ${alert.explainer}`);
 
-            // Suppress intrusive notification banners for transport / initial offline state
-            if (alert.id === 'mqtt_broker_disconnected' || alert.id === 'mqtt_awaiting_ingress' || alert.id === 'mqtt_telemetry_timeout') {
+            // Never spawn intrusive sticky notification banners into Open MCT for transient, notice, or transport sync events
+            if (alert.severity === 'notice' || alert.severity === 'info' || 
+                alert.id === 'mqtt_broker_disconnected' || alert.id === 'mqtt_awaiting_ingress' || 
+                alert.id === 'mqtt_telemetry_timeout' || alert.id === 'mqtt_ingress_nominal' || alert.id === 'sim_mode_active') {
                 return;
             }
 
@@ -224,10 +232,6 @@
                     } else if (alert.severity === 'warning') {
                         if (typeof openmctInstance.notifications.alert === 'function') {
                             openmctInstance.notifications.alert(fullMsg);
-                        }
-                    } else if (alert.severity === 'notice' || alert.severity === 'info') {
-                        if (typeof openmctInstance.notifications.info === 'function') {
-                            openmctInstance.notifications.info(fullMsg);
                         }
                     }
                 } catch (e) {
@@ -245,43 +249,32 @@
                 const hasPackets = (actualState.packetCount > 0);
                 const isRecent = hasPackets && ((now - actualState.lastReceivedTime) < 6000);
 
-                if (!isMqttBrokerConnected) {
-                    // MQTT Broker Offline / Transport Down
-                    currentAlerts.push({
-                        id: 'mqtt_broker_disconnected',
-                        target: 'MQTT Transport',
-                        severity: 'critical',
-                        title: 'MQTT Broker Offline (192.168.1.1:1883)',
-                        explainer: 'Native TCP connection to Mosquitto broker at 192.168.1.1:1883 is offline. Telemetry pipeline is unavailable; individual battery module states cannot be determined.'
-                    });
-                } else if (!hasPackets) {
-                    // Broker reached, but awaiting first packet
-                    currentAlerts.push({
-                        id: 'mqtt_awaiting_ingress',
-                        target: 'MQTT Ingress',
-                        severity: 'warning',
-                        title: 'Awaiting Telemetry Ingress (Power/feedback)',
-                        explainer: 'Connected to Mosquitto broker at 192.168.1.1:1883. Awaiting first telemetry packet on topic Power/feedback. Accumulator metrics are pending.'
-                    });
-                } else if (!isRecent) {
-                    // Telemetry timed out
-                    const lapsedSec = Math.round((now - actualState.lastReceivedTime) / 1000);
-                    currentAlerts.push({
-                        id: 'mqtt_telemetry_timeout',
-                        target: 'MQTT Telemetry',
-                        severity: 'critical',
-                        title: `Telemetry Ingress Timeout (${lapsedSec}s Stale)`,
-                        explainer: `No telemetry packets received on topic Power/feedback for ${lapsedSec} seconds. Telemetry stream is interrupted; rover power subsystem states cannot be reliably confirmed.`
-                    });
+                if (!isRecent) {
+                    if (!hasPackets) {
+                        currentAlerts.push({
+                            id: 'mqtt_broker_disconnected',
+                            target: 'Battery Ingress',
+                            severity: 'critical',
+                            title: 'Battery Telemetry Offline',
+                            explainer: 'No telemetry packets received from rover power subsystem. Individual battery module states cannot be determined.'
+                        });
+                    } else {
+                        const lapsedSec = Math.round((now - actualState.lastReceivedTime) / 1000);
+                        currentAlerts.push({
+                            id: 'mqtt_telemetry_timeout',
+                            target: 'Battery Telemetry',
+                            severity: 'critical',
+                            title: `Telemetry Ingress Timeout (${lapsedSec}s Stale)`,
+                            explainer: `No telemetry packets received on rover power bus for ${lapsedSec} seconds. Telemetry stream is interrupted.`
+                        });
+                    }
                 } else {
-                    // Telemetry is verified LIVE and active!
-                    // Notice alert when live ingress is active
                     currentAlerts.push({
                         id: 'mqtt_ingress_nominal',
-                        target: 'MQTT Ingress',
+                        target: 'Power Telemetry',
                         severity: 'notice',
-                        title: 'Telemetry Ingress Live (Power/feedback)',
-                        explainer: 'Active packet stream verified from 192.168.1.1:1883. Ingress telemetry is synchronized with rover power bus.'
+                        title: 'Telemetry Ingress Live',
+                        explainer: 'Active packet stream verified from rover power bus. Telemetry is synchronized.'
                     });
 
                     // Evaluate physical pack parameters from confirmed incoming data
@@ -292,61 +285,55 @@
                         { id: '4', key: 'b4', name: 'Battery 4', volts: actualState.v4, soc: actualState.soc.b4 }
                     ];
 
+                    const activePacks = packs.filter(p => typeof p.volts === 'number' && p.volts >= 5.0);
+
                     packs.forEach(p => {
-                        // Disconnected check (confirmed 0.00V reported by rover MCU during active comms)
-                        if (p.volts < 1.0) {
-                            currentAlerts.push({
-                                id: `pack_${p.id}_disconnected`,
-                                target: p.name,
-                                severity: 'warning',
-                                title: `${p.name} Disconnected (0.00V)`,
-                                explainer: `Confirmed 0.00V reported on ${p.name} during active telemetry. The 20V 4Ah accumulator module is unseated, module fuse blown, or internal BMS safety switch tripped.`
-                            });
-                        } else {
-                            // Critical undervoltage (< 15.0V)
-                            if (p.volts < 15.0) {
+                        // Only evaluate if this pack's voltage has actually been received
+                        if (typeof p.volts === 'number') {
+                            // Disconnected check (confirmed 0.00V reported during active telemetry when others are alive)
+                            if (p.volts < 1.0 && activePacks.length > 0) {
                                 currentAlerts.push({
-                                    id: `pack_${p.id}_undervolt`,
-                                    target: p.name,
-                                    severity: 'critical',
-                                    title: `${p.name} Critical Undervoltage (${p.volts.toFixed(2)}V)`,
-                                    explainer: `Measured voltage ${p.volts.toFixed(2)}V is below the critical 5S Li-ion threshold (3.0V/cell). Discharging below this point risks copper dissolution from anode current collectors, causing permanent cell damage and short-circuit hazard.`
-                                });
-                            } else if (p.soc < 10.0) {
-                                // Deep discharge (< 10% SOC)
-                                currentAlerts.push({
-                                    id: `pack_${p.id}_deep_discharge`,
-                                    target: p.name,
-                                    severity: 'critical',
-                                    title: `${p.name} Deep Discharge (${p.soc.toFixed(1)}%)`,
-                                    explainer: `Accumulator reserve is critically depleted below 10%. Emergency load shedding or immediate recharge required to prevent irreversible cell damage.`
-                                });
-                            } else if (p.soc < 20.0) {
-                                // Low Reserve (10% - 20% SOC)
-                                currentAlerts.push({
-                                    id: `pack_${p.id}_low_soc`,
+                                    id: `pack_${p.id}_disconnected`,
                                     target: p.name,
                                     severity: 'warning',
-                                    title: `${p.name} Low Reserve (${p.soc.toFixed(1)}%)`,
-                                    explainer: `20V 4Ah pack reserve depleted below 20% (${p.soc.toFixed(1)}% / ${p.volts.toFixed(2)}V). Continued discharge below 16.0V (3.2V/cell cut-off) causes accelerated cell degradation and capacity loss.`
+                                    title: `${p.name} Disconnected (0.00V)`,
+                                    explainer: `Confirmed 0.00V reported on ${p.name} during active telemetry. The 20V 4Ah accumulator module is unseated, module fuse blown, or internal BMS safety switch tripped.`
                                 });
-                            }
+                            } else if (p.volts >= 1.0) {
+                                // Critical undervoltage (< 16.0V)
+                                if (p.volts < 16.0) {
+                                    currentAlerts.push({
+                                        id: `pack_${p.id}_undervolt`,
+                                        target: p.name,
+                                        severity: 'critical',
+                                        title: `${p.name} Critical Undervoltage (${p.volts.toFixed(2)}V)`,
+                                        explainer: `Measured voltage ${p.volts.toFixed(2)}V is below the critical 5S Li-ion threshold (3.2V/cell). Discharging below this point risks permanent cell damage.`
+                                    });
+                                } else if (p.volts < 17.5) {
+                                    currentAlerts.push({
+                                        id: `pack_${p.id}_low_soc`,
+                                        target: p.name,
+                                        severity: 'warning',
+                                        title: `${p.name} Low Reserve (${p.volts.toFixed(2)}V)`,
+                                        explainer: `20V 4Ah pack reserve is low (${p.volts.toFixed(2)}V). Continued discharge approaching cut-off.`
+                                    });
+                                }
 
-                            // Overvoltage (> 21.2V)
-                            if (p.volts > 21.2) {
-                                currentAlerts.push({
-                                    id: `pack_${p.id}_overvolt`,
-                                    target: p.name,
-                                    severity: 'critical',
-                                    title: `${p.name} Overvoltage (${p.volts.toFixed(2)}V)`,
-                                    explainer: `Terminal voltage ${p.volts.toFixed(2)}V exceeds the maximum 5S charge limit (21.0V / 4.2V/cell). Cell overcharge accelerates electrolyte breakdown and risks thermal stress.`
-                                });
+                                // Overvoltage (> 21.4V)
+                                if (p.volts > 21.4) {
+                                    currentAlerts.push({
+                                        id: `pack_${p.id}_overvolt`,
+                                        target: p.name,
+                                        severity: 'critical',
+                                        title: `${p.name} Overvoltage (${p.volts.toFixed(2)}V)`,
+                                        explainer: `Terminal voltage ${p.volts.toFixed(2)}V exceeds the maximum 5S charge limit (21.0V / 4.2V/cell).`
+                                    });
+                                }
                             }
                         }
                     });
 
-                    // Parallel voltage imbalance (> 1.5V)
-                    const activePacks = packs.filter(p => p.volts >= 5.0);
+                    // Parallel voltage imbalance (> 1.2V)
                     if (activePacks.length >= 2) {
                         let minV = Infinity;
                         let maxV = -Infinity;
@@ -355,34 +342,36 @@
                             if (p.volts > maxV) maxV = p.volts;
                         });
                         const diff = maxV - minV;
-                        if (diff > 1.5) {
+                        if (diff > 1.2) {
                             currentAlerts.push({
                                 id: 'parallel_imbalance',
                                 target: 'Parallel Bus',
                                 severity: 'warning',
                                 title: `Parallel Pack Imbalance (${diff.toFixed(2)}V Delta)`,
-                                explainer: `Voltage difference between active parallel packs is ${diff.toFixed(2)}V (> 1.5V limit). High voltage differentials cause uncontrolled cross-charging currents between batteries when tied to the shared 20V bus.`
+                                explainer: `Voltage difference between active parallel packs is ${diff.toFixed(2)}V (> 1.2V limit). High voltage differentials cause cross-charging currents.`
                             });
                         }
                     }
 
-                    // Temperature checks
-                    if (actualState.temp_c <= -100) {
-                        currentAlerts.push({
-                            id: 'temp_sensor_open',
-                            target: 'Temp Sensor',
-                            severity: 'warning',
-                            title: 'Battery Temperature Sensor Open-Circuit (-127°C)',
-                            explainer: `Board temperature reading of -127°C indicates an open-circuit / disconnected NTC thermistor wire on the power monitoring harness. Thermal runaway protection monitoring is unavailable.`
-                        });
-                    } else if (actualState.temp_c > 50) {
-                        currentAlerts.push({
-                            id: 'temp_overheat',
-                            target: 'Thermal Protection',
-                            severity: 'critical',
-                            title: `Battery Over-Temperature (${actualState.temp_c}°C)`,
-                            explainer: `Battery/board temperature (${actualState.temp_c}°C) exceeds the 45°C maximum continuous threshold for 5S Li-ion cells. Reduce rover drive load immediately to prevent thermal damage.`
-                        });
+                    // Temperature checks (only if valid temperature reading exists)
+                    if (typeof actualState.temp_c === 'number') {
+                        if (actualState.temp_c <= -100) {
+                            currentAlerts.push({
+                                id: 'temp_sensor_open',
+                                target: 'Temp Sensor',
+                                severity: 'warning',
+                                title: 'Battery Temperature Sensor Open-Circuit (-127°C)',
+                                explainer: `Board temperature reading of -127°C indicates an open-circuit / disconnected NTC thermistor wire.`
+                            });
+                        } else if (actualState.temp_c > 50) {
+                            currentAlerts.push({
+                                id: 'temp_overheat',
+                                target: 'Thermal Protection',
+                                severity: 'critical',
+                                title: `Battery Over-Temperature (${actualState.temp_c}°C)`,
+                                explainer: `Battery/board temperature (${actualState.temp_c}°C) exceeds the 50°C maximum continuous threshold for 5S Li-ion cells.`
+                            });
+                        }
                     }
 
                     // Rover System low charge
@@ -674,21 +663,116 @@
             connect();
         }
 
+        // Connect to gateway /realtime WebSocket for live normalized telemetry
+        function initRealtimeWebSocket() {
+            if (typeof window === 'undefined') return;
+
+            const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = proto + '//' + window.location.host + '/realtime';
+
+            function connect() {
+                try {
+                    const ws = new WebSocket(wsUrl);
+
+                    ws.onopen = function () {
+                        try {
+                            ws.send(JSON.stringify({ action: 'subscribe', id: '*' }));
+                            ws.send(JSON.stringify({ sub: '*' }));
+                            ['rover.power.bus.voltage', 'rover.power.bus.current',
+                             'rover.power.battery.1.v', 'rover.power.battery.2.v', 'rover.power.battery.3.v', 'rover.power.battery.4.v',
+                             'rover.power.battery.1.soc', 'rover.power.battery.2.soc', 'rover.power.battery.3.soc', 'rover.power.battery.4.soc',
+                             'rover.power.battery.1.temp', 'rover.power.battery.2.temp', 'rover.power.battery.3.temp', 'rover.power.battery.4.temp'
+                            ].forEach(k => {
+                                ws.send(JSON.stringify({ action: 'subscribe', id: k }));
+                            });
+                        } catch (_) {}
+                    };
+
+                    ws.onmessage = function (evt) {
+                        try {
+                            const msg = JSON.parse(evt.data);
+                            if (!msg || !msg.id) return;
+
+                            if (msg.id === 'rover.power.bus.voltage') {
+                                actualState.voltage_bus = Number(msg.value);
+                                actualState.lastReceivedTime = Date.now();
+                                actualState.packetCount++;
+                                evaluateBatteryHealth();
+                                indicatorCallbacks.forEach(cb => { try { cb(); } catch (_) {} });
+                                broadcastSync();
+                            } else if (msg.id.startsWith('rover.power.battery.')) {
+                                const parts = msg.id.split('.');
+                                const packNum = parseInt(parts[3], 10);
+                                const metric = parts[4];
+
+                                if (packNum >= 1 && packNum <= 4) {
+                                    if (metric === 'v') {
+                                        const vNum = Number(msg.value);
+                                        actualState[`v${packNum}`] = vNum;
+                                        actualState.soc[`b${packNum}`] = voltageToSoc(vNum);
+                                        recordActualPoint(`b${packNum}`, actualState.soc[`b${packNum}`], msg.utc || Date.now());
+                                    } else if (metric === 'soc') {
+                                        actualState.soc[`b${packNum}`] = Number(msg.value);
+                                        recordActualPoint(`b${packNum}`, Number(msg.value), msg.utc || Date.now());
+                                    } else if (metric === 'temp') {
+                                        actualState.temp_c = Number(msg.value);
+                                    }
+
+                                    actualState.lastReceivedTime = Date.now();
+                                    actualState.packetCount++;
+
+                                    const activeVs = [actualState.v1, actualState.v2, actualState.v3, actualState.v4].filter(v => v >= 5.0);
+                                    if (activeVs.length > 0) {
+                                        const avgSoc = [actualState.soc.b1, actualState.soc.b2, actualState.soc.b3, actualState.soc.b4].filter(s => s > 0);
+                                        actualState.soc.system = avgSoc.length > 0 ? (avgSoc.reduce((a, b) => a + b, 0) / avgSoc.length) : 0;
+                                        if (!actualState.voltage_bus || actualState.voltage_bus < 5.0) {
+                                            actualState.voltage_bus = activeVs.reduce((a, b) => a + b, 0) / activeVs.length;
+                                        }
+                                        recordActualPoint('system', actualState.soc.system, msg.utc || Date.now());
+                                    }
+
+                                    evaluateBatteryHealth();
+                                    indicatorCallbacks.forEach(cb => { try { cb(); } catch (_) {} });
+                                    broadcastSync();
+                                }
+                            }
+                        } catch (err) {
+                            // ignore
+                        }
+                    };
+
+                    ws.onclose = function () {
+                        setTimeout(connect, 3000);
+                    };
+
+                    ws.onerror = function () {
+                        try { ws.close(); } catch (_) {}
+                    };
+                } catch (e) {
+                    setTimeout(connect, 5000);
+                }
+            }
+
+            connect();
+        }
+
+        initRealtimeWebSocket();
+
         // Simulator controls: strictly starts only when mode is 'simulated'
         function startSimulator() {
             if (simulatorInterval) return;
 
-            // Seed initial points for simulation if empty
+            // Seed initial points for simulation if empty (calibrated around nominal 18.2V / 82% SOC)
             if (simulatedHistory.system.length === 0) {
                 const now = Date.now();
                 for (let i = 60; i >= 0; i--) {
                     const t = now - i * 1000;
                     const noise = Math.sin(i * 0.2) * 0.15;
-                    recordSimulatedPoint('b1', 92.0 - i * 0.01 + noise, t);
-                    recordSimulatedPoint('b2', 89.5 - i * 0.008 - noise, t);
-                    recordSimulatedPoint('b3', 93.2 - i * 0.012 + noise * 0.5, t);
-                    recordSimulatedPoint('b4', 88.8 - i * 0.009 - noise * 0.8, t);
-                    recordSimulatedPoint('system', 90.8 - i * 0.01, t);
+                    recordSimulatedPoint('b1', 82.5 - i * 0.01 + noise, t);
+                    recordSimulatedPoint('b2', 81.8 - i * 0.008 - noise, t);
+                    recordSimulatedPoint('b3', 82.2 - i * 0.012 + noise * 0.5, t);
+                    recordSimulatedPoint('b4', 82.0 - i * 0.009 - noise * 0.8, t);
+                    recordSimulatedPoint('system', 82.1 - i * 0.01, t);
                 }
             }
 
@@ -711,10 +795,10 @@
                 let nb3 = simulatedState.b3 + jitter3;
                 let nb4 = simulatedState.b4 + jitter4;
 
-                if (nb1 < 15) nb1 = 98;
-                if (nb2 < 15) nb2 = 96;
-                if (nb3 < 15) nb3 = 99;
-                if (nb4 < 15) nb4 = 95;
+                if (nb1 < 15) nb1 = 85;
+                if (nb2 < 15) nb2 = 84;
+                if (nb3 < 15) nb3 = 85;
+                if (nb4 < 15) nb4 = 83;
 
                 recordSimulatedPoint('b1', nb1, t);
                 recordSimulatedPoint('b2', nb2, t);
@@ -722,6 +806,12 @@
                 recordSimulatedPoint('b4', nb4, t);
                 const avg = (nb1 + nb2 + nb3 + nb4) / 4;
                 recordSimulatedPoint('system', avg, t);
+
+                simulatedState.v1 = parseFloat((20.15 + (nb1 - 83) * 0.04 + 0.03).toFixed(2));
+                simulatedState.v2 = parseFloat((20.15 + (nb2 - 83) * 0.04 - 0.03).toFixed(2));
+                simulatedState.v3 = parseFloat((20.15 + (nb3 - 83) * 0.04 + 0.06).toFixed(2));
+                simulatedState.v4 = parseFloat((20.15 + (nb4 - 83) * 0.04 - 0.00).toFixed(2));
+                simulatedState.busV = parseFloat(((simulatedState.v1 + simulatedState.v2 + simulatedState.v3 + simulatedState.v4) / 4).toFixed(2));
 
                 evaluateBatteryHealth();
                 indicatorCallbacks.forEach(cb => { try { cb(); } catch (_) {} });
@@ -1089,6 +1179,13 @@
                     <div id="ind-batt-clickable" style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                         <div id="ind-batt-led" style="width: 7px; height: 7px; border-radius: 0px; background: #64748b; flex-shrink: 0;"></div>
                         <span id="ind-batt-text" style="font-size: 11px; font-weight: 700; font-family: monospace; letter-spacing: -0.2px; color: #f8fafc; pointer-events: none;">BATT: NO LINK</span>
+                        <span id="ind-batt-divider" style="color: #475569; font-size: 10px; pointer-events: none;">|</span>
+                        <div id="ind-batt-modules" style="display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 700; font-family: monospace; pointer-events: none;">
+                            <span id="ind-batt-m1" style="padding: 1px 4px; border: 1px solid rgba(100, 116, 139, 0.4); background: rgba(100, 116, 139, 0.1); color: #64748b; border-radius: 0px;">B1: ---</span>
+                            <span id="ind-batt-m2" style="padding: 1px 4px; border: 1px solid rgba(100, 116, 139, 0.4); background: rgba(100, 116, 139, 0.1); color: #64748b; border-radius: 0px;">B2: ---</span>
+                            <span id="ind-batt-m3" style="padding: 1px 4px; border: 1px solid rgba(100, 116, 139, 0.4); background: rgba(100, 116, 139, 0.1); color: #64748b; border-radius: 0px;">B3: ---</span>
+                            <span id="ind-batt-m4" style="padding: 1px 4px; border: 1px solid rgba(100, 116, 139, 0.4); background: rgba(100, 116, 139, 0.1); color: #64748b; border-radius: 0px;">B4: ---</span>
+                        </div>
                     </div>
                     <button id="ind-batt-mode-btn" style="border: 1px solid #38bdf8; border-radius: 0px; background: #222222; color: #38bdf8; padding: 1px 5px; font-size: 9px; font-weight: 800; font-family: monospace; cursor: pointer;" title="Click to switch between Actual and Simulated telemetry">
                         ACTUAL
@@ -1131,60 +1228,18 @@
 
                 const ledEl = indicatorEl.querySelector('#ind-batt-led');
                 const textEl = indicatorEl.querySelector('#ind-batt-text');
+                const m1El = indicatorEl.querySelector('#ind-batt-m1');
+                const m2El = indicatorEl.querySelector('#ind-batt-m2');
+                const m3El = indicatorEl.querySelector('#ind-batt-m3');
+                const m4El = indicatorEl.querySelector('#ind-batt-m4');
+                const moduleBadges = [m1El, m2El, m3El, m4El];
 
                 function updateIndicatorView() {
-                    const isActual = telemetryMode === 'actual';
+                    const isActual = (telemetryMode === 'actual');
+                    const now = Date.now();
                     const hasPackets = (actualState.packetCount > 0);
-
-                    if (isActual && !hasPackets) {
-                        if (textEl) textEl.innerText = 'BATT: NO LINK';
-                        if (ledEl) ledEl.style.background = '#64748b';
-                        indicatorEl.style.borderColor = '#282828';
-                        indicatorEl.style.background = '#161616';
-                        indicatorEl.title = '20V 4Ah Battery System\nSTATUS: NOT CONNECTED (Awaiting MQTT 192.168.1.1:1883)\nClick to open Diagnostics window.';
-                        if (modeBtn) {
-                            modeBtn.innerText = 'ACTUAL';
-                            modeBtn.style.background = 'rgba(2, 132, 199, 0.25)';
-                            modeBtn.style.color = '#38bdf8';
-                            modeBtn.style.border = '1px solid rgba(56, 189, 248, 0.4)';
-                        }
-                        return;
-                    }
-
-                    const currentSoc = (isActual && actualState.soc && typeof actualState.soc.system === 'number')
-                        ? actualState.soc.system
-                        : (isActual ? 0.0 : (simulatedState.system || 90.5));
-                    const busV = (isActual && typeof actualState.voltage_bus === 'number')
-                        ? actualState.voltage_bus
-                        : (isActual ? ((actualState.v1 || 0) + (actualState.v2 || 0) + (actualState.v3 || 0) + (actualState.v4 || 0)) : 20.1);
-
-                    if (textEl) textEl.innerText = `BATT: ${Number(busV || 0).toFixed(1)}V | ${Number(currentSoc || 0).toFixed(0)}%`;
-
-                    // Alert check
-                    const hasError = activeAlerts.some(a => a.severity === 'error');
-                    const hasWarning = activeAlerts.length > 0;
-
-                    if (ledEl) {
-                        if (currentSoc <= 20 || hasError) {
-                            ledEl.style.background = '#ef4444';
-                        } else if (currentSoc <= 50 || hasWarning) {
-                            ledEl.style.background = '#f59e0b';
-                        } else {
-                            ledEl.style.background = '#22c55e';
-                        }
-                    }
-
-                    // Indicator frame alert coloring
-                    if (hasError) {
-                        indicatorEl.style.borderColor = '#ef4444';
-                        indicatorEl.style.background = '#7f1d1d33';
-                    } else if (hasWarning) {
-                        indicatorEl.style.borderColor = '#f59e0b';
-                        indicatorEl.style.background = '#78350f33';
-                    } else {
-                        indicatorEl.style.borderColor = '#282828';
-                        indicatorEl.style.background = '#161616';
-                    }
+                    const isRecent = hasPackets && ((now - actualState.lastReceivedTime) < 6000);
+                    const isOnline = isActual ? isRecent : true;
 
                     // Mode Button Styling
                     if (modeBtn) {
@@ -1203,13 +1258,140 @@
                         }
                     }
 
-                    // Rich Tooltip with active alerts & explainers
-                    let tooltip = `20V 4Ah Accumulator System: ${currentSoc.toFixed(1)}% [MODE: ${telemetryMode.toUpperCase()}]\n`;
+                    if (!isOnline) {
+                        if (textEl) textEl.innerText = 'BATT: NO LINK';
+                        if (ledEl) ledEl.style.background = '#64748b';
+                        indicatorEl.style.borderColor = '#282828';
+                        indicatorEl.style.background = '#161616';
+                        indicatorEl.title = '20V 4Ah Battery System\nSTATUS: NOT CONNECTED (Awaiting telemetry)\nClick to open Diagnostics window.';
+
+                        moduleBadges.forEach((badge, idx) => {
+                            if (badge) {
+                                badge.innerText = `B${idx + 1}: ---`;
+                                badge.style.color = '#64748b';
+                                badge.style.borderColor = 'rgba(100, 116, 139, 0.4)';
+                                badge.style.background = 'rgba(100, 116, 139, 0.1)';
+                            }
+                        });
+                        return;
+                    }
+
+                    let vList = [];
+                    let currentSoc = 83.3;
+                    let busV = 20.16;
+
                     if (isActual) {
-                        const activeCount = [actualState.v1, actualState.v2, actualState.v3, actualState.v4].filter(v => v >= 5.0).length;
-                        tooltip += `Bat 1: ${actualState.v1.toFixed(2)}V | Bat 2: ${actualState.v2.toFixed(2)}V | ` +
-                                   `Bat 3: ${actualState.v3.toFixed(2)}V | Bat 4: ${actualState.v4.toFixed(2)}V\n` +
-                                   `Active Packs: ${activeCount}/4 | Temp: ${actualState.temp_c}°C\n`;
+                        vList = [actualState.v1, actualState.v2, actualState.v3, actualState.v4];
+                        const activeVs = vList.filter(v => typeof v === 'number' && v >= 5.0);
+                        busV = (typeof actualState.voltage_bus === 'number' && actualState.voltage_bus > 5.0)
+                            ? actualState.voltage_bus
+                            : (activeVs.length > 0 ? (activeVs.reduce((a, b) => a + b, 0) / activeVs.length) : null);
+                        currentSoc = (actualState.soc && typeof actualState.soc.system === 'number')
+                            ? actualState.soc.system
+                            : (activeVs.length > 0 ? (activeVs.reduce((s, v) => s + voltageToSoc(v), 0) / activeVs.length) : null);
+                    } else {
+                        vList = [
+                            simulatedState.v1 || 20.18,
+                            simulatedState.v2 || 20.12,
+                            simulatedState.v3 || 20.21,
+                            simulatedState.v4 || 20.15
+                        ];
+                        busV = simulatedState.busV || 20.16;
+                        currentSoc = simulatedState.system || 83.3;
+                    }
+
+                    if (textEl) {
+                        textEl.innerText = busV !== null ? `BATT: ${Number(busV).toFixed(1)}V` : 'BATT: NO LINK';
+                    }
+
+                    let anyCrit = false;
+                    let anyWarn = false;
+
+                    vList.forEach((v, idx) => {
+                        const badge = moduleBadges[idx];
+                        if (!badge) return;
+
+                        let badgeText = 'OK';
+                        let badgeColor = '#22c55e';
+                        let badgeBorder = 'rgba(34, 197, 94, 0.4)';
+                        let badgeBg = 'rgba(34, 197, 94, 0.15)';
+
+                        if (v === null || v === undefined) {
+                            badgeText = '---';
+                            badgeColor = '#64748b';
+                            badgeBorder = 'rgba(100, 116, 139, 0.4)';
+                            badgeBg = 'rgba(100, 116, 139, 0.1)';
+                        } else if (v < 1.0) {
+                            badgeText = 'DISC';
+                            badgeColor = '#ef4444';
+                            badgeBorder = 'rgba(239, 68, 68, 0.5)';
+                            badgeBg = 'rgba(239, 68, 68, 0.2)';
+                            anyCrit = true;
+                        } else if (v < 16.0) {
+                            badgeText = 'CRIT';
+                            badgeColor = '#ef4444';
+                            badgeBorder = 'rgba(239, 68, 68, 0.5)';
+                            badgeBg = 'rgba(239, 68, 68, 0.2)';
+                            anyCrit = true;
+                        } else if (v < 17.5) {
+                            badgeText = 'WARN';
+                            badgeColor = '#f59e0b';
+                            badgeBorder = 'rgba(245, 158, 11, 0.5)';
+                            badgeBg = 'rgba(245, 158, 11, 0.2)';
+                            anyWarn = true;
+                        } else if (v > 21.4) {
+                            badgeText = 'OVRV';
+                            badgeColor = '#ef4444';
+                            badgeBorder = 'rgba(239, 68, 68, 0.5)';
+                            badgeBg = 'rgba(239, 68, 68, 0.2)';
+                            anyCrit = true;
+                        }
+
+                        badge.innerText = `B${idx + 1}: ${badgeText}`;
+                        badge.style.color = badgeColor;
+                        badge.style.borderColor = badgeBorder;
+                        badge.style.background = badgeBg;
+                    });
+
+                    // Alert check
+                    const hasError = activeAlerts.some(a => a.severity === 'error' || a.severity === 'critical') || anyCrit;
+                    const hasWarning = activeAlerts.some(a => a.severity === 'warning') || anyWarn;
+
+                    if (ledEl) {
+                        if (hasError || (currentSoc !== null && currentSoc <= 20)) {
+                            ledEl.style.background = '#ef4444';
+                        } else if (hasWarning || (currentSoc !== null && currentSoc <= 50)) {
+                            ledEl.style.background = '#f59e0b';
+                        } else if (vList.every(v => v === null || v === undefined)) {
+                            ledEl.style.background = '#64748b';
+                        } else {
+                            ledEl.style.background = '#22c55e';
+                        }
+                    }
+
+                    // Indicator frame alert coloring
+                    if (hasError) {
+                        indicatorEl.style.borderColor = '#ef4444';
+                        indicatorEl.style.background = '#7f1d1d33';
+                    } else if (hasWarning) {
+                        indicatorEl.style.borderColor = '#f59e0b';
+                        indicatorEl.style.background = '#78350f33';
+                    } else {
+                        indicatorEl.style.borderColor = '#282828';
+                        indicatorEl.style.background = '#161616';
+                    }
+
+                    // Rich Tooltip with active alerts & explainers
+                    const busVStr = (typeof busV === 'number') ? `${busV.toFixed(2)}V` : '--- V';
+                    const socStr = (typeof currentSoc === 'number') ? `${currentSoc.toFixed(1)}%` : '--- %';
+                    let tooltip = `20V 4Ah Accumulator System: ${busVStr} (${socStr}) [MODE: ${telemetryMode.toUpperCase()}]\n`;
+                    const vStr = (idx) => (typeof vList[idx] === 'number') ? `${vList[idx].toFixed(2)}V` : '---';
+                    tooltip += `Bat 1: ${vStr(0)} | Bat 2: ${vStr(1)} | ` +
+                               `Bat 3: ${vStr(2)} | Bat 4: ${vStr(3)}\n`;
+                    if (isActual) {
+                        const activeCount = vList.filter(v => typeof v === 'number' && v >= 5.0).length;
+                        const tempStr = (typeof actualState.temp_c === 'number') ? `${actualState.temp_c}°C` : '--- °C';
+                        tooltip += `Active Packs: ${activeCount}/4 | Temp: ${tempStr}\n`;
                     }
 
                     if (activeAlerts.length > 0) {

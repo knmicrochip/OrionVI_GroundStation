@@ -209,9 +209,15 @@
             <div id="cam-role-badge" class="cam-badge">PERCEPTION / SLAM</div>
             <select id="cam-selector" class="btn-hud" style="font-family: sans-serif; cursor: pointer; padding: 2px 4px;">
                 <option value="1">CAM 1: MAST RGB</option>
-                <option value="2">CAM 2: FRONT DRIVE</option>
-                <option value="3">CAM 3: ARM GRIPPER</option>
-                <option value="4">CAM 4: SCIENCE</option>
+                <option value="2">CAM 2: MAST DEPTH</option>
+                <option value="3">CAM 3: HAZCAM FL</option>
+                <option value="4">CAM 4: HAZCAM FR</option>
+                <option value="5">CAM 5: HAZCAM REAR</option>
+                <option value="6">CAM 6: ARM WRIST</option>
+                <option value="7">CAM 7: ARM ELBOW</option>
+                <option value="8">CAM 8: SCI MACRO</option>
+                <option value="9">CAM 9: SCI CHAMBER</option>
+                <option value="10">CAM 10: DECK PANO</option>
             </select>
         </div>
 
@@ -224,6 +230,7 @@
                 <span id="hud-bitrate" style="color: #38bdf8;">12.4 Mbps</span>
             </div>
             <button id="btn-toggle-reticle" class="btn-hud">RETICLE</button>
+            <button id="btn-toggle-signal" class="btn-hud">📶 SIM SIGNAL</button>
             <button id="btn-snapshot" class="btn-hud btn-primary">📸 SNAPSHOT</button>
             <button id="btn-close" class="btn-hud" onclick="window.close()">✕ CLOSE</button>
         </div>
@@ -233,12 +240,24 @@
     <main class="viewport-container">
         <canvas id="camera-stream-canvas"></canvas>
         <div id="reticle" class="reticle-crosshair"></div>
+
+        <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
+        <div id="no-signal-overlay" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 20; pointer-events: none; user-select: none;">
+            <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 76px; height: 76px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
+            <div style="font-family: monospace, sans-serif; font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 20px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
+                NO SIGNAL
+            </div>
+            <div id="no-signal-reconnect" style="font-family: monospace, sans-serif; font-size: 11px; font-weight: 700; color: #94a3b8; margin-top: 10px; letter-spacing: 0.5px;">
+                Attempting reconnect in 5s...
+            </div>
+        </div>
+
         <div id="osd-info" class="osd-overlay">
             <span style="color: #71717a;">UTC:</span> <span id="osd-time">--</span> |
             <span style="color: #71717a;">CODEC:</span> H.264 LOW-LATENCY
         </div>
-        <div id="osd-status" class="osd-status">
-            DOWNLINK: NOMINAL (99.8% PKTS)
+        <div id="osd-status" class="osd-status" style="color: #ef4444;">
+            DOWNLINK: NO CARRIER (0.0% PKTS)
         </div>
         <div id="snapshot-toast" class="snapshot-toast">
             ✓ SNAPSHOT LOGGED TO NOTEBOOK
@@ -247,10 +266,16 @@
 
     <script>
         const CAMERAS = [
-            { id: 1, key: 'mast', name: 'Mast Intel RealSense D435i', short: 'MAST RGB', resolution: '1920x1080', role: 'Perception / SLAM' },
-            { id: 2, key: 'front', name: 'Front Chassis Drive Camera', short: 'FRONT DRIVE', resolution: '1280x720', role: 'Mobility / Obstacle' },
-            { id: 3, key: 'arm', name: 'Manipulator Gripper Camera', short: 'ARM / GRIPPER', resolution: '1280x720', role: 'Inspection / Manipulation' },
-            { id: 4, key: 'science', name: 'Science Chamber Camera', short: 'SCIENCE CHAMBER', resolution: '1280x720', role: 'Sample Verification' }
+            { id: 1, key: 'mast_rgb', alias: 'mast', name: 'Mast Intel RealSense D435i RGB', short: 'MAST RGB', resolution: '1920x1080', role: 'Perception / SLAM' },
+            { id: 2, key: 'mast_depth', alias: 'depth', name: 'Mast RealSense Depth Sensor', short: 'MAST DEPTH', resolution: '1280x720', role: 'Disparity / 3D Mapping' },
+            { id: 3, key: 'haz_fl', alias: 'front', name: 'Front Left Chassis Hazard Cam', short: 'HAZCAM FL', resolution: '1280x720', role: 'Mobility / Obstacle Left' },
+            { id: 4, key: 'haz_fr', alias: 'fr', name: 'Front Right Chassis Hazard Cam', short: 'HAZCAM FR', resolution: '1280x720', role: 'Mobility / Obstacle Right' },
+            { id: 5, key: 'haz_rear', alias: 'rear', name: 'Rear Chassis Hazard Cam', short: 'HAZCAM REAR', resolution: '1280x720', role: 'Reverse / Tether Safety' },
+            { id: 6, key: 'arm_wrist', alias: 'arm', name: 'Manipulator Wrist / Gripper Cam', short: 'ARM WRIST', resolution: '1280x720', role: 'Inspection / Grasping' },
+            { id: 7, key: 'arm_elbow', alias: 'elbow', name: 'Manipulator Elbow Overview Cam', short: 'ARM ELBOW', resolution: '1280x720', role: 'Kinematics / Collision Guard' },
+            { id: 8, key: 'sci_macro', alias: 'macro', name: 'Science Macro Probing Cam', short: 'SCI MACRO', resolution: '1920x1080', role: 'Regolith / Drill Core' },
+            { id: 9, key: 'sci_chamber', alias: 'science', name: 'Science Internal Carousel Cam', short: 'SCI CHAMBER', resolution: '1280x720', role: 'Sample Carousel / Reagents' },
+            { id: 10, key: 'deck_pano', alias: 'pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360' }
         ];
 
         // Parse camera parameter from URL (?cam=1, ?cam=2, ?cam=mast, etc.)
@@ -303,10 +328,110 @@
             setTimeout(() => { toast.style.display = 'none'; }, 2000);
         });
 
+        // Signal State: default NO SIGNAL when offline
+        let hasSignal = false;
+        const orionLogo = new Image();
+        orionLogo.src = '/logotyp_pion_white.png';
+
+        const noSigOverlay = document.getElementById('no-signal-overlay');
+        const liveDot = document.getElementById('cam-live-dot');
+        const osdStatus = document.getElementById('osd-status');
+        const btnSignal = document.getElementById('btn-toggle-signal');
+
+        function updateSignalUI() {
+            noSigOverlay.style.display = hasSignal ? 'none' : 'flex';
+            liveDot.style.background = hasSignal ? '#22c55e' : '#ef4444';
+            hudFps.textContent = hasSignal ? '30 FPS' : '0 FPS';
+            hudFps.style.color = hasSignal ? '#22c55e' : '#ef4444';
+            hudBitrate.textContent = hasSignal ? '12.4 Mbps' : '0.0 Mbps';
+            hudBitrate.style.color = hasSignal ? '#38bdf8' : '#71717a';
+            osdStatus.textContent = hasSignal ? 'DOWNLINK: NOMINAL (99.8% PKTS)' : 'DOWNLINK: NO CARRIER (0.0% PKTS)';
+            osdStatus.style.color = hasSignal ? '#38bdf8' : '#ef4444';
+            btnSignal.textContent = `📶 ${hasSignal ? 'CUT SIGNAL' : 'SIM SIGNAL'}`;
+        }
+        updateSignalUI();
+
+        btnSignal.addEventListener('click', () => {
+            hasSignal = !hasSignal;
+            updateSignalUI();
+        });
+
+        // Reconnect countdown and scan timer
+        let reconnectCountdown = 5;
+        const reconnectEl = document.getElementById('no-signal-reconnect');
+
+        async function scanFeed() {
+            if (hasSignal) return;
+            try {
+                const res = await fetch(`/api/camera/${activeCam.id}/feed_status`).catch(() => null);
+                if (res && res.ok) {
+                    const data = await res.json();
+                    if (data && data.online) {
+                        hasSignal = true;
+                        updateSignalUI();
+                    }
+                }
+            } catch (_) {}
+        }
+
+        setInterval(async () => {
+            if (hasSignal) {
+                reconnectCountdown = 5;
+                return;
+            }
+
+            if (reconnectCountdown <= 0) {
+                reconnectCountdown = 5;
+            } else {
+                reconnectCountdown--;
+            }
+
+            if (reconnectEl) {
+                reconnectEl.textContent = `Attempting reconnect in ${reconnectCountdown}s...`;
+            }
+
+            // At 0 app checks for signal once more from respective camera
+            if (reconnectCountdown === 0) {
+                await scanFeed();
+            }
+        }, 1000);
+
         // Animation / Feed generation loop
         function drawFrame() {
             const now = Date.now();
             osdTime.textContent = new Date(now).toISOString();
+
+            if (!hasSignal) {
+                // Procedural No Signal Scene
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, 1280, 720);
+
+                ctx.strokeStyle = '#181818';
+                ctx.lineWidth = 1;
+                for (let x = 0; x < 1280; x += 40) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
+                }
+                for (let y = 0; y < 720; y += 40) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
+                }
+
+                if (orionLogo.complete && orionLogo.naturalWidth > 0) {
+                    ctx.drawImage(orionLogo, 640 - 45, 360 - 80, 90, 90);
+                }
+
+                ctx.fillStyle = '#ef4444';
+                ctx.font = 'bold 20px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('NO SIGNAL', 640, 360 + 40);
+
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'bold 12px monospace';
+                ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 68);
+
+                requestAnimationFrame(drawFrame);
+                return;
+            }
 
             // Background terrain & sky
             ctx.fillStyle = '#1e1b18';
@@ -345,22 +470,96 @@
                     ctx.stroke();
                 }
             } else if (activeCam.id === 2) {
-                // Front Chassis
-                ctx.fillStyle = '#181818';
-                ctx.fillRect(100, 450, 140, 270);
-                ctx.fillRect(1040, 450, 140, 270);
+                // Mast Depth Pointcloud
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, 1280, 720);
+                for (let r = 0; r < 12; r++) {
+                    for (let c = 0; c < 20; c++) {
+                        const depth = Math.sin((c * 0.4) + (now * 0.002)) * Math.cos((r * 0.5));
+                        ctx.fillStyle = `hsla(${180 + depth * 90}, 85%, 45%, 0.7)`;
+                        ctx.fillRect(c * 64 + 2, r * 60 + 2, 60, 56);
+                    }
+                }
                 ctx.fillStyle = '#38bdf8';
                 ctx.font = '16px monospace';
-                ctx.fillText('FRONT CHASSIS WHEELBASE VIEW', 480, 670);
+                ctx.fillText('STEREO DEPTH POINTCLOUD: 1.84m CLOUD DENSITY', 400, 40);
             } else if (activeCam.id === 3) {
-                // Manipulator
-                ctx.fillStyle = '#2d2d30';
-                ctx.fillRect(520, 480, 60, 240);
-                ctx.fillRect(700, 480, 60, 240);
+                // Front Chassis HazCam FL
+                ctx.fillStyle = '#181818';
+                ctx.fillRect(60, 420, 240, 300);
+                ctx.strokeStyle = '#22c55e';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(180, 570, 120, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#22c55e';
+                ctx.font = '16px monospace';
+                ctx.fillText('FRONT CHASSIS HAZCAM FL | TREAD CLEARANCE 24cm', 440, 670);
+            } else if (activeCam.id === 4) {
+                // Front Chassis HazCam FR
+                ctx.fillStyle = '#181818';
+                ctx.fillRect(980, 420, 240, 300);
+                ctx.strokeStyle = '#16a34a';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(1100, 570, 120, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.fillStyle = '#16a34a';
+                ctx.font = '16px monospace';
+                ctx.fillText('FRONT CHASSIS HAZCAM FR | TREAD CLEARANCE 24cm', 440, 670);
+            } else if (activeCam.id === 5) {
+                // Rear HazCam
+                ctx.fillStyle = '#1e1b18';
+                ctx.fillRect(200, 620, 880, 100);
+                ctx.strokeStyle = '#84cc16';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([8, 8]);
+                ctx.beginPath();
+                ctx.moveTo(350, 620); ctx.lineTo(480, 360);
+                ctx.moveTo(930, 620); ctx.lineTo(800, 360);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.fillStyle = '#84cc16';
+                ctx.font = '16px monospace';
+                ctx.fillText('REVERSE HAZARD TRACK | NO REAR OBSTACLES', 450, 420);
+            } else if (activeCam.id === 6) {
+                // Manipulator Wrist
+                ctx.fillStyle = '#27272a';
+                ctx.fillRect(520, 450, 70, 270);
+                ctx.fillRect(690, 450, 70, 270);
+                ctx.strokeStyle = '#f97316';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(560, 400); ctx.lineTo(720, 400);
+                ctx.moveTo(640, 320); ctx.lineTo(640, 480);
+                ctx.stroke();
                 ctx.fillStyle = '#f97316';
                 ctx.font = '16px monospace';
-                ctx.fillText('MANIPULATOR GRIPPER ALIGNMENT', 490, 450);
-            } else if (activeCam.id === 4) {
+                ctx.fillText('MANIPULATOR GRIPPER ALIGNMENT: 42mm APERTURE', 420, 300);
+            } else if (activeCam.id === 7) {
+                // Manipulator Elbow
+                ctx.strokeStyle = '#ea580c';
+                ctx.lineWidth = 6;
+                ctx.beginPath();
+                ctx.moveTo(250, 600); ctx.lineTo(640, 350); ctx.lineTo(1000, 500);
+                ctx.stroke();
+                ctx.fillStyle = '#ea580c';
+                ctx.font = '16px monospace';
+                ctx.fillText('ELBOW OVERVIEW | SHOULDER: +42° | ELBOW: -18°', 420, 250);
+            } else if (activeCam.id === 8) {
+                // Science Macro
+                ctx.fillStyle = '#451a03';
+                ctx.fillRect(0, 0, 1280, 720);
+                ctx.fillStyle = '#d97706';
+                for (let i = 0; i < 60; i++) {
+                    ctx.beginPath();
+                    ctx.arc((i * 47) % 1280, (i * 73) % 720, (i % 8) + 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.fillStyle = '#eab308';
+                ctx.font = '16px monospace';
+                ctx.fillText('MACRO REGOLITH PROBING: PEAK FOCUS | 500 μm SCALE', 400, 660);
+            } else if (activeCam.id === 9) {
                 // Science Chamber
                 ctx.fillStyle = '#252526';
                 ctx.beginPath();
@@ -371,7 +570,19 @@
                 ctx.stroke();
                 ctx.fillStyle = '#a855f7';
                 ctx.font = '16px monospace';
-                ctx.fillText('CYCLONE SAMPLING CHAMBER', 500, 360);
+                ctx.fillText('CYCLONE SAMPLING CHAMBER | TUBE #2 ACTIVE', 450, 360);
+            } else if (activeCam.id === 10) {
+                // Top Deck Context
+                ctx.fillStyle = '#09090b';
+                ctx.fillRect(0, 0, 1280, 720);
+                ctx.fillStyle = '#1e293b';
+                ctx.fillRect(300, 480, 680, 240);
+                ctx.strokeStyle = '#ec4899';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(300, 480, 680, 240);
+                ctx.fillStyle = '#ec4899';
+                ctx.font = '16px monospace';
+                ctx.fillText('TOP DECK CONTEXT 360 | SOLAR & RF MAST NOMINAL', 430, 450);
             }
 
             requestAnimationFrame(drawFrame);

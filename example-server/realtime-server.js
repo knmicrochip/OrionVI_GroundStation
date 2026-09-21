@@ -29,10 +29,35 @@ function RealtimeServer(spacecraft, gateway) {
             try {
                 if (typeof message !== 'string') message = message.toString();
 
+                function handleSub(targetId) {
+                    subscribed[targetId] = true;
+                    if (gateway) {
+                        if (targetId === '*' || targetId === 'all') {
+                            var allState = gateway.getAllState();
+                            Object.keys(allState).forEach(function (k) {
+                                var val = allState[k];
+                                if (val !== null && val !== undefined) {
+                                    if (ws.readyState === 1) {
+                                        try { ws.send(JSON.stringify({ id: k, utc: Date.now(), value: val })); } catch (_) {}
+                                    }
+                                }
+                            });
+                        } else {
+                            var val = gateway.getState(targetId);
+                            if (val !== null && val !== undefined) {
+                                if (ws.readyState === 1) {
+                                    try { ws.send(JSON.stringify({ id: targetId, utc: Date.now(), value: val })); } catch (_) {}
+                                }
+                            }
+                        }
+                    }
+                }
+
                 if (message.startsWith('{')) {
                     var parsed = JSON.parse(message);
-                    if (parsed.action === 'subscribe') {
-                        subscribed[parsed.id] = true;
+                    if (parsed.action === 'subscribe' || parsed.sub) {
+                        var targetId = parsed.id || parsed.sub;
+                        handleSub(targetId);
                     } else if (parsed.action === 'unsubscribe') {
                         delete subscribed[parsed.id];
                     } else if (parsed.action === 'command' && gateway) {
@@ -46,7 +71,7 @@ function RealtimeServer(spacecraft, gateway) {
                     var cmd = parts[0];
                     var id = parts[1];
                     if (cmd === 'subscribe') {
-                        subscribed[id] = true;
+                        handleSub(id);
                     } else if (cmd === 'unsubscribe') {
                         delete subscribed[id];
                     }

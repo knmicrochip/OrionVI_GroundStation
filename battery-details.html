@@ -428,6 +428,7 @@
             const ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
+                ws.send(JSON.stringify({ action: 'subscribe', id: '*' }));
                 ws.send(JSON.stringify({ sub: '*' }));
             };
 
@@ -527,15 +528,21 @@
                 }
 
                 if (badge) {
-                    if (typeof v !== 'number') {
+                    if (typeof v !== 'number' || v < 5.0) {
                         badge.textContent = '---';
                         badge.className = 'status-badge unlinked';
-                    } else if (v < 15.0) {
+                    } else if (v < 1.0) {
+                        badge.textContent = 'DISC';
+                        badge.className = 'status-badge crit';
+                    } else if (v < 16.0) {
                         badge.textContent = 'CRIT';
                         badge.className = 'status-badge crit';
-                    } else if (v < 18.0) {
+                    } else if (v < 17.5) {
                         badge.textContent = 'WARN';
                         badge.className = 'status-badge warn';
+                    } else if (v > 21.4) {
+                        badge.textContent = 'OVRV';
+                        badge.className = 'status-badge crit';
                     } else {
                         badge.textContent = 'OK';
                         badge.className = 'status-badge';
@@ -590,7 +597,7 @@
             const gw = w - pad.left - pad.right;
             const gh = h - pad.top - pad.bottom;
 
-            // Grid lines (14V to 22V)
+            // Grid lines (13V to 21V)
             ctx.strokeStyle = '#222222';
             ctx.lineWidth = 1;
             ctx.fillStyle = '#64748b';
@@ -638,11 +645,11 @@
 
         if (currentMode === 'simulated') {
             for (let i = 0; i < 40; i++) {
-                recordPoint('bus', 20.1);
-                recordPoint('b1', 20.12);
-                recordPoint('b2', 20.08);
-                recordPoint('b3', 20.15);
-                recordPoint('b4', 20.05);
+                recordPoint('bus', 20.16);
+                recordPoint('b1', 20.18);
+                recordPoint('b2', 20.12);
+                recordPoint('b3', 20.21);
+                recordPoint('b4', 20.15);
             }
         }
         updateUI();

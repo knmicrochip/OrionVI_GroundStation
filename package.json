@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node run-electron.js",
     "start:web": "node example-server/server.js",
+    "start:browser": "node example-server/server.js --open",
     "electron": "node run-electron.js",
     "clean": "rm -rf node_modules package-lock.json"
   },

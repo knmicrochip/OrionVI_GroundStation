@@ -148,18 +148,18 @@
             // Power Limits
             const busV = getVal('rover.power.bus.voltage');
             if (typeof busV === 'number' && busV > 0) {
-                if (busV < 15.0) {
+                if (busV < 16.0) {
                     this.setAlert('pwr_uvlo', {
                         id: 'pwr_uvlo',
                         subsystem: 'power',
                         subsystemName: 'Power System',
                         severity: 'critical',
-                        title: 'UVLO: Main 20V Bus Undervoltage Trip',
-                        explainer: `Bus voltage dropped to ${busV.toFixed(2)}V (< 15.0V threshold). Risk of permanent Li-ion cell damage.`,
+                        title: 'UVLO: Main Bus Undervoltage Trip',
+                        explainer: `Bus voltage dropped to ${busV.toFixed(2)}V (< 16.0V threshold). Risk of permanent Li-ion cell damage.`,
                         recovery: 'Disconnect heavy loads immediately; plug in charger or replace battery packs.',
                         timestamp: now
                     });
-                } else if (busV < 16.5) {
+                } else if (busV < 17.5) {
                     this.clearAlert('pwr_uvlo');
                     this.setAlert('pwr_low', {
                         id: 'pwr_low',
@@ -167,11 +167,11 @@
                         subsystemName: 'Power System',
                         severity: 'warning',
                         title: 'Power: Battery Reserve Low (< 20% SoC)',
-                        explainer: `Main bus voltage at ${busV.toFixed(2)}V (< 16.5V). Battery depletion approaching.`,
+                        explainer: `Main bus voltage at ${busV.toFixed(2)}V (< 17.5V). Battery depletion approaching.`,
                         recovery: 'Return rover toward base station; shed non-essential loads.',
                         timestamp: now
                     });
-                } else if (busV > 21.2) {
+                } else if (busV > 21.4) {
                     this.clearAlert('pwr_uvlo');
                     this.clearAlert('pwr_low');
                     this.setAlert('pwr_overv', {
@@ -180,7 +180,7 @@
                         subsystemName: 'Power System',
                         severity: 'warning',
                         title: 'Power: Bus Overvoltage Detected',
-                        explainer: `Main bus voltage at ${busV.toFixed(2)}V (> 21.2V maximum 5S limit).`,
+                        explainer: `Main bus voltage at ${busV.toFixed(2)}V (> 21.4V maximum 5S limit).`,
                         recovery: 'Check charger regulator and BMS balancing circuit.',
                         timestamp: now
                     });

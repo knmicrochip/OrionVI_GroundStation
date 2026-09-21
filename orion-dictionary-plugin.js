@@ -162,7 +162,7 @@
     const FOLDERS = {
         'root': {
             name: 'Orion GS',
-            children: ['rover', 'base_station', 'task_plans', 'displays']
+            children: ['rover', 'disp_cameras', 'displays', 'task_plans', 'base_station']
         },
         'rover': {
             name: 'Rover',
@@ -182,14 +182,19 @@
         'power': { name: 'Power', location: 'rover' },
         'compute_net': { name: 'Compute / Net', location: 'rover' },
         'perception': {
-            name: 'Perception',
+            name: 'Perception (Cameras)',
             location: 'rover',
             children: [
-                'cam_mast',
-                'cam_front',
-                'cam_arm',
-                'cam_science',
-                'layout_cameras',
+                'cam_mast_rgb',
+                'cam_mast_depth',
+                'cam_haz_fl',
+                'cam_haz_fr',
+                'cam_haz_rear',
+                'cam_arm_wrist',
+                'cam_arm_elbow',
+                'cam_science_macro',
+                'cam_science_chamber',
+                'cam_deck_pano',
                 'rover.perception.realsense.alive',
                 'rover.perception.realsense.fps',
                 'rover.perception.realsense.temp',
@@ -197,11 +202,20 @@
                 'rover.perception.video_bitrate'
             ]
         },
-        'cam_mast': { name: 'Mast Intel RealSense D435i', location: 'perception', type: 'orion.camera_feed' },
-        'cam_front': { name: 'Front Chassis Drive Camera', location: 'perception', type: 'orion.camera_feed' },
-        'cam_arm': { name: 'Manipulator Gripper Camera', location: 'perception', type: 'orion.camera_feed' },
-        'cam_science': { name: 'Science Chamber Camera', location: 'perception', type: 'orion.camera_feed' },
-        'layout_cameras': { name: 'Flexible Multi-Camera Deck', location: 'perception', type: 'orion.camera_mosaic' },
+        'cam_mast_rgb': { name: 'Mast Intel RealSense D435i RGB', location: 'perception', type: 'orion.camera_feed' },
+        'cam_mast_depth': { name: 'Mast RealSense Depth Sensor', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_fl': { name: 'Front Left Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_fr': { name: 'Front Right Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_rear': { name: 'Rear Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm_wrist': { name: 'Manipulator Wrist / Gripper Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm_elbow': { name: 'Manipulator Elbow Overview Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science_macro': { name: 'Science Macro Probing Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science_chamber': { name: 'Science Internal Carousel Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_deck_pano': { name: 'Chassis Top Deck Context Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_mast': { name: 'Mast Intel RealSense D435i RGB', location: 'perception', type: 'orion.camera_feed' },
+        'cam_front': { name: 'Front Left Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm': { name: 'Manipulator Wrist / Gripper Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science': { name: 'Science Internal Carousel Cam', location: 'perception', type: 'orion.camera_feed' },
         'navigation': { name: 'Navigation', location: 'rover' },
         'manipulator': { name: 'Manipulator', location: 'rover' },
         'science': { name: 'Science', location: 'rover' },
@@ -222,17 +236,13 @@
             children: [
                 'modes_tab',
                 'disp_overview',
+                'disp_cameras',
                 'disp_teleop',
                 'disp_nav',
                 'disp_manipulator',
                 'disp_science',
                 'disp_maintenance',
                 'disp_safety',
-                'layout_cameras',
-                'cam_mast',
-                'cam_front',
-                'cam_arm',
-                'cam_science',
                 'lad_power',
                 'lad_drive',
                 'lad_nav',
@@ -283,6 +293,11 @@
                     if (domainObject && !domainObject.configuration) {
                         domainObject.configuration = {};
                     }
+                    if (domainObject && domainObject.type === 'flexible-layout') {
+                        if (!domainObject.configuration.containers) {
+                            domainObject.configuration.containers = [];
+                        }
+                    }
                     if (domainObject && domainObject.type === 'telemetry.plot.overlay') {
                         if (!domainObject.configuration.series) {
                             domainObject.configuration.series = (domainObject.composition || []).map(item => ({
@@ -304,7 +319,11 @@
                 const saved = localStorage.getItem(STORAGE_OBJECTS_KEY);
                 if (saved) {
                     const parsed = JSON.parse(saved);
-                    Object.keys(parsed).forEach(k => dynamicObjects.set(k, parsed[k]));
+                    Object.keys(parsed).forEach(k => {
+                        if (k !== 'modes_tab' && k !== 'disp_cameras' && !k.startsWith('disp_') && !FOLDERS[k]) {
+                            dynamicObjects.set(k, parsed[k]);
+                        }
+                    });
                 }
             } catch (_) {}
 
@@ -313,7 +332,11 @@
                 const savedComp = localStorage.getItem(STORAGE_COMPOSITIONS_KEY);
                 if (savedComp) {
                     const parsedComp = JSON.parse(savedComp);
-                    Object.keys(parsedComp).forEach(k => customCompositions.set(k, parsedComp[k]));
+                    Object.keys(parsedComp).forEach(k => {
+                        if (k !== 'modes_tab' && k !== 'disp_cameras') {
+                            customCompositions.set(k, parsedComp[k]);
+                        }
+                    });
                 }
             } catch (_) {}
 
@@ -701,6 +724,7 @@
                             configuration: {},
                             composition: [
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_overview' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_cameras' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_teleop' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_nav' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
@@ -737,6 +761,125 @@
                         });
                     }
 
+                    // Standalone Separate Flexible Layout for Rover Cameras (10 Feeds)
+                    // Native Open MCT flexible layout: each camera has its own independent frame/field
+                    // with its own native Open MCT Notebook Snapshot button, larger view, and separate window popout
+                    if (key === 'disp_cameras') {
+                        return Promise.resolve({
+                            identifier: identifier,
+                            name: 'CAMERAS (10 FEEDS)',
+                            type: 'flexible-layout',
+                            location: `${TAXONOMY_NAMESPACE}:displays`,
+                            composition: [
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_rgb' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fl' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fr' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_rear' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_wrist' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_elbow' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_macro' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_chamber' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_deck_pano' }
+                            ],
+                            configuration: {
+                                rowsLayout: false,
+                                containers: [
+                                    {
+                                        id: 'col_mast',
+                                        size: 20,
+                                        frames: [
+                                            {
+                                                id: 'frame_mast_rgb',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_rgb' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_mast_depth',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        id: 'col_haz_front',
+                                        size: 20,
+                                        frames: [
+                                            {
+                                                id: 'frame_haz_fl',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fl' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_haz_fr',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fr' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        id: 'col_haz_deck',
+                                        size: 20,
+                                        frames: [
+                                            {
+                                                id: 'frame_haz_rear',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_rear' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_deck_pano',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_deck_pano' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        id: 'col_arm',
+                                        size: 20,
+                                        frames: [
+                                            {
+                                                id: 'frame_arm_wrist',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_wrist' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_arm_elbow',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_elbow' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        id: 'col_science',
+                                        size: 20,
+                                        frames: [
+                                            {
+                                                id: 'frame_science_macro',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_macro' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_science_chamber',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_chamber' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    }
+                                ]
+                            }
+                        });
+                    }
+
                     if (key === 'disp_teleop') {
                         return Promise.resolve({
                             identifier: identifier,
@@ -744,18 +887,18 @@
                             type: 'layout',
                             location: `${TAXONOMY_NAMESPACE}:displays`,
                             composition: [
-                                { namespace: TAXONOMY_NAMESPACE, key: 'widget_camera_mosaic' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'widget_gamepad' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'widget_attitude_indicator' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'plot_wheel_currents' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'widget_attitude_indicator' }
+                                { namespace: TAXONOMY_NAMESPACE, key: 'lad_drive' }
                             ],
                             configuration: {
                                 layoutGrid: [10, 10],
                                 items: [
-                                    createLayoutItem('item_cam', 'widget_camera_mosaic', 1, 1, 58, 31),
-                                    createLayoutItem('item_gamepad', 'widget_gamepad', 60, 1, 39, 31),
-                                    createLayoutItem('item_plot_curr', 'plot_wheel_currents', 1, 33, 58, 22),
-                                    createLayoutItem('item_att', 'widget_attitude_indicator', 60, 33, 39, 22)
+                                    createLayoutItem('item_gamepad', 'widget_gamepad', 1, 1, 58, 25),
+                                    createLayoutItem('item_att', 'widget_attitude_indicator', 60, 1, 39, 25),
+                                    createLayoutItem('item_plot_curr', 'plot_wheel_currents', 1, 27, 48, 27),
+                                    createLayoutItem('item_lad_drive', 'lad_drive', 50, 27, 49, 27)
                                 ]
                             }
                         });
@@ -904,10 +1047,22 @@
             openmct.composition.addProvider({
                 appliesTo: function (domainObject) {
                     return domainObject.identifier.namespace === TAXONOMY_NAMESPACE &&
-                           (domainObject.type === 'folder' || domainObject.type === 'tabs' || domainObject.type === 'layout' || domainObject.type === 'LadTable' || domainObject.type === 'telemetry.plot.overlay');
+                           (domainObject.type === 'folder' || domainObject.type === 'tabs' || domainObject.type === 'layout' || domainObject.type === 'flexible-layout' || domainObject.type === 'LadTable' || domainObject.type === 'telemetry.plot.overlay');
                 },
                 load: function (domainObject) {
                     const key = domainObject.identifier.key;
+                    if (key === 'modes_tab') {
+                        return Promise.resolve([
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_overview' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_cameras' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_teleop' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_nav' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_science' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_maintenance' },
+                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' }
+                        ]);
+                    }
                     const folder = FOLDERS[key];
                     const dynamicList = customCompositions.get(key) || [];
 

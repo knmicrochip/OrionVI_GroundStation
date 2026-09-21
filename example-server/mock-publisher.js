@@ -95,7 +95,7 @@ function runOnce() {
     // Dynamics
     noisyPayloads['rover/navigation/telemetry'].pitch = parseFloat((1.2 + 0.3 * Math.sin(t * 0.5)).toFixed(2));
     noisyPayloads['rover/navigation/telemetry'].roll = parseFloat((-0.8 + 0.3 * Math.cos(t * 0.4)).toFixed(2));
-    noisyPayloads['rover/power/telemetry'].bus_voltage = parseFloat((19.80 + 0.1 * Math.sin(t * 0.2)).toFixed(2));
+    noisyPayloads['rover/power/telemetry'].bus_voltage = parseFloat((20.16 + 0.04 * Math.sin(t * 0.2)).toFixed(2));
 
     if (isMqtt) {
         publishViaMqtt(noisyPayloads);

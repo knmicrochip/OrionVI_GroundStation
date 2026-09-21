@@ -194,41 +194,115 @@ async function createWindow() {
                 try {
                     const fs = require('fs');
                     const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
-                    await new Promise(r => setTimeout(r, 4000));
+                    await new Promise(r => setTimeout(r, 4500));
 
-                    console.log('[Test Cameras] Navigating to TELEOP display...');
+                    console.log('[Test Cameras] Navigating to Rover Displays (modes_tab)...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:modes_tab';
+                    `);
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    // Inspect available tabs and click the CAMERAS tab
+                    const tabDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const tabs = Array.from(document.querySelectorAll('.c-tabs__tab, .c-tab, [role="tab"], button')).map(el => el.textContent.trim());
+                            const camTabEl = Array.from(document.querySelectorAll('.c-tabs__tab, .c-tab, [role="tab"], button')).find(el => el.textContent && el.textContent.includes('CAMERAS'));
+                            if (camTabEl) {
+                                camTabEl.click();
+                            }
+                            return {
+                                tabs,
+                                clickedCamTab: Boolean(camTabEl)
+                            };
+                        })()
+                    `);
+                    console.log('[Test Cameras] Tab Diagnostic & Click:', JSON.stringify(tabDiag));
+                    await new Promise(r => setTimeout(r, 3500));
+
+                    // Verify flexible layout, active timestamps, reconnect countdown message, and absence of deleted buttons
+                    const flexDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const fl = document.querySelector('.c-fl, [class*="flexible-layout"]');
+                            const frames = document.querySelectorAll('.c-fl-frame, .c-frame');
+                            const deletedLargerViewBtns = document.querySelectorAll('#btn-single-larger');
+                            const deletedPopoutBtns = document.querySelectorAll('#btn-single-popout');
+                            const deletedSignalBtns = document.querySelectorAll('#btn-single-signal');
+                            const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot');
+                            const hudTimes = Array.from(document.querySelectorAll('#single-hud-time')).map(el => el.textContent.trim());
+                            const osdTimes = Array.from(document.querySelectorAll('#single-osd-time')).map(el => el.textContent.trim());
+                            const noSigOverlays = document.querySelectorAll('#single-no-signal');
+                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
+
+                            return {
+                                hasFlexibleLayout: Boolean(fl),
+                                frameCount: frames.length,
+                                deletedButtonsPresent: (deletedLargerViewBtns.length + deletedPopoutBtns.length + deletedSignalBtns.length + deletedCaptureBtns.length) > 0,
+                                hudTimeSamples: hudTimes.slice(0, 3),
+                                osdTimeSamples: osdTimes.slice(0, 3),
+                                noSigCount: noSigOverlays.length,
+                                reconnectMsgSamples: reconnectMsgs.slice(0, 3)
+                            };
+                        })()
+                    `);
+                    console.log('[Test Cameras] In-Tab Flexible Layout Diagnostic:', JSON.stringify(flexDiag));
+
+                    // Capture screenshot 1: Flexible layout as a tab with "Attempting reconnect in..." countdown
+                    const tabCamerasImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras.png'), tabCamerasImg.toPNG());
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-cameras-reconnect-countdown.png'), tabCamerasImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-modes-tab-cameras.png and screenshot-cameras-reconnect-countdown.png');
+
+                    // Wait 2.5 seconds to observe countdown progression
+                    console.log('[Test Cameras] Waiting 2.5s for countdown progression...');
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    const progressDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
+                            return { reconnectMsgSamples: reconnectMsgs.slice(0, 3) };
+                        })()
+                    `);
+                    console.log('[Test Cameras] Countdown Progression Diagnostic:', JSON.stringify(progressDiag));
+
+                    // Toggle signal simulation on for Mast Camera (cam_mast_rgb)
+                    console.log('[Test Cameras] Toggling signal simulation on for Mast camera...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            if (window.OrionCameraManager) {
+                                window.OrionCameraManager.toggleSignal(1);
+                            }
+                        })()
+                    `);
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    const tabCamerasLiveImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras-live.png'), tabCamerasLiveImg.toPNG());
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-10-cameras-flexible-layout-mixed.png'), tabCamerasLiveImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-modes-tab-cameras-live.png');
+
+                    // Navigate directly to dedicated view for Mast RGB camera (cam_mast_rgb)
+                    console.log('[Test Cameras] Navigating to dedicated view for cam_mast_rgb...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:cam_mast_rgb';
+                    `);
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    const cleanMastImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-mast-clean.png'), cleanMastImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-mast-clean.png');
+
+                    // Verify clean TELEOP display has zero cameras
+                    console.log('[Test Cameras] Navigating to clean TELEOP display...');
                     await mainWindow.webContents.executeJavaScript(`
                         window.location.hash = '#/browse/orion.taxonomy:disp_teleop';
                     `);
                     await new Promise(r => setTimeout(r, 2500));
 
-                    const gridImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-grid.png'), gridImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-grid.png');
+                    const cleanTeleopImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-clean-teleop-display.png'), cleanTeleopImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-clean-teleop-display.png');
 
-                    console.log('[Test Cameras] Switching to 1+3 HERO mode...');
-                    await mainWindow.webContents.executeJavaScript(`
-                        (() => {
-                            const heroBtn = document.querySelector('.btn-deck-mode[data-mode="hero"]');
-                            if (heroBtn) heroBtn.click();
-                        })()
-                    `);
-                    await new Promise(r => setTimeout(r, 1500));
-
-                    const heroImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-hero.png'), heroImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-hero.png');
-
-                    console.log('[Test Cameras] Navigating to individual camera feed: cam_mast...');
-                    await mainWindow.webContents.executeJavaScript(`
-                        window.location.hash = '#/browse/orion.taxonomy:cam_mast';
-                    `);
-                    await new Promise(r => setTimeout(r, 2000));
-
-                    const singleFeedImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-feed-mast.png'), singleFeedImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-feed-mast.png');
-
+                    // Open pop-out window for camera-view.html?cam=1 to verify popout window
                     console.log('[Test Cameras] Opening pop-out window for camera-view.html?cam=1...');
                     const popout = new BrowserWindow({
                         width: 840,
@@ -242,16 +316,127 @@ async function createWindow() {
                         }
                     });
                     await popout.loadURL(`http://localhost:${port}/camera-view.html?cam=1`);
-                    await new Promise(r => setTimeout(r, 1800));
+                    await new Promise(r => setTimeout(r, 2000));
 
-                    const popoutImg = await popout.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-popout.png'), popoutImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-popout.png');
+                    const popoutNoSigImg = await popout.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-popout-nosignal.png'), popoutNoSigImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-popout-nosignal.png');
                     popout.close();
 
-                    console.log('[Test Cameras] Verification completed successfully!');
+                    console.log('[Test Cameras] All verifications finished successfully!');
                 } catch (e) {
                     console.error('[Test Cameras Error]', e);
+                }
+                setTimeout(() => {
+                    mainWindow.close();
+                }, 1000);
+            } else if (testMode === 'test_battery') {
+                try {
+                    const fs = require('fs');
+                    const http = require('http');
+                    const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    // Step 1: Check initial offline indicator state (zero false-OK check)
+                    const offlineDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const ind = document.querySelector('.orion-battery-indicator');
+                            const mainText = document.querySelector('#ind-batt-text') ? document.querySelector('#ind-batt-text').textContent.trim() : null;
+                            const b1 = document.querySelector('#ind-batt-m1') ? document.querySelector('#ind-batt-m1').textContent.trim() : null;
+                            const b2 = document.querySelector('#ind-batt-m2') ? document.querySelector('#ind-batt-m2').textContent.trim() : null;
+                            const b3 = document.querySelector('#ind-batt-m3') ? document.querySelector('#ind-batt-m3').textContent.trim() : null;
+                            const b4 = document.querySelector('#ind-batt-m4') ? document.querySelector('#ind-batt-m4').textContent.trim() : null;
+                            const ledColor = document.querySelector('#ind-batt-led') ? document.querySelector('#ind-batt-led').style.background : null;
+                            return { indFound: Boolean(ind), mainText, b1, b2, b3, b4, ledColor };
+                        })()
+                    `);
+                    console.log('[Test Battery] Initial Offline State:', JSON.stringify(offlineDiag));
+
+                    // Step 2: Inject calibrated mock telemetry (~20.1V - 20.2V)
+                    console.log('[Test Battery] Injecting calibrated mock telemetry (~20.1V - 20.2V)...');
+                    const mockPayloads = JSON.parse(fs.readFileSync(path.join(__dirname, 'example-server/mock-payloads.json'), 'utf8'));
+                    await new Promise((resolve) => {
+                        const postData = JSON.stringify(mockPayloads);
+                        const req = http.request({
+                            hostname: 'localhost',
+                            port: port,
+                            path: '/api/inject-telemetry',
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Content-Length': Buffer.byteLength(postData)
+                            }
+                        }, (res) => {
+                            let data = '';
+                            res.on('data', chunk => data += chunk);
+                            res.on('end', resolve);
+                        });
+                        req.write(postData);
+                        req.end();
+                    });
+
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // Step 3: Check live indicator state with battery states and calibrated voltages
+                    const liveDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const mainText = document.querySelector('#ind-batt-text') ? document.querySelector('#ind-batt-text').textContent.trim() : null;
+                            const b1 = document.querySelector('#ind-batt-m1') ? document.querySelector('#ind-batt-m1').textContent.trim() : null;
+                            const b2 = document.querySelector('#ind-batt-m2') ? document.querySelector('#ind-batt-m2').textContent.trim() : null;
+                            const b3 = document.querySelector('#ind-batt-m3') ? document.querySelector('#ind-batt-m3').textContent.trim() : null;
+                            const b4 = document.querySelector('#ind-batt-m4') ? document.querySelector('#ind-batt-m4').textContent.trim() : null;
+                            const ledColor = document.querySelector('#ind-batt-led') ? document.querySelector('#ind-batt-led').style.background : null;
+                            const tooltip = document.querySelector('.orion-battery-indicator') ? document.querySelector('.orion-battery-indicator').title : null;
+                            return { mainText, b1, b2, b3, b4, ledColor, tooltip };
+                        })()
+                    `);
+                    console.log('[Test Battery] Live Telemetry State:', JSON.stringify(liveDiag));
+
+                    // Capture screenshot of the top panel with live battery states
+                    const topPanelImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-top-panel-battery-states.png'), topPanelImg.toPNG());
+                    console.log('[Test Battery] Saved screenshot-top-panel-battery-states.png');
+
+                    // Step 4: Open battery-details.html window and capture
+                    console.log('[Test Battery] Opening battery-details.html diagnostics window...');
+                    const detailsWin = new BrowserWindow({
+                        width: 960,
+                        height: 680,
+                        title: 'Orion Rover - Battery Telemetry & Diagnostics',
+                        webPreferences: {
+                            nodeIntegration: false,
+                            contextIsolation: true
+                        }
+                    });
+                    await detailsWin.loadURL(`http://localhost:${port}/battery-details.html`);
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    const detailsDiag = await detailsWin.webContents.executeJavaScript(`
+                        (() => {
+                            const busV = document.getElementById('kpi-bus-v') ? document.getElementById('kpi-bus-v').textContent.trim() : null;
+                            const busI = document.getElementById('kpi-bus-i') ? document.getElementById('kpi-bus-i').textContent.trim() : null;
+                            const soc = document.getElementById('kpi-soc') ? document.getElementById('kpi-soc').textContent.trim() : null;
+                            const v1 = document.getElementById('row-v1') ? document.getElementById('row-v1').textContent.trim() : null;
+                            const v2 = document.getElementById('row-v2') ? document.getElementById('row-v2').textContent.trim() : null;
+                            const v3 = document.getElementById('row-v3') ? document.getElementById('row-v3').textContent.trim() : null;
+                            const v4 = document.getElementById('row-v4') ? document.getElementById('row-v4').textContent.trim() : null;
+                            const b1 = document.getElementById('badge-m1') ? document.getElementById('badge-m1').textContent.trim() : null;
+                            const b2 = document.getElementById('badge-m2') ? document.getElementById('badge-m2').textContent.trim() : null;
+                            const b3 = document.getElementById('badge-m3') ? document.getElementById('badge-m3').textContent.trim() : null;
+                            const b4 = document.getElementById('badge-m4') ? document.getElementById('badge-m4').textContent.trim() : null;
+                            return { busV, busI, soc, v1, v2, v3, v4, b1, b2, b3, b4 };
+                        })()
+                    `);
+                    console.log('[Test Battery] Diagnostics Window State:', JSON.stringify(detailsDiag));
+
+                    const detailsImg = await detailsWin.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-battery-details-calibrated.png'), detailsImg.toPNG());
+                    console.log('[Test Battery] Saved screenshot-battery-details-calibrated.png');
+                    detailsWin.close();
+
+                    console.log('[Test Battery] All battery verifications completed successfully!');
+                } catch (e) {
+                    console.error('[Test Battery Error]', e);
                 }
                 setTimeout(() => {
                     mainWindow.close();

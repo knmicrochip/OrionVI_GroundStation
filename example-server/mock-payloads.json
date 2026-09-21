@@ -1,10 +1,10 @@
 {
   "Power/feedback": {
-    "temp_c": -127,
-    "bat_1_v": 0,
-    "bat_2_v": 0,
-    "bat_3_v": 19.03943062,
-    "bat_4_v": 0,
+    "temp_c": 28.2,
+    "bat_1_v": 20.18,
+    "bat_2_v": 20.12,
+    "bat_3_v": 20.21,
+    "bat_4_v": 20.15,
     "adc_wl": 3039,
     "adc_wr": 3046,
     "adc_ram": 3113,
@@ -13,16 +13,16 @@
     "adc_inne": 3011
   },
   "rover/power/telemetry": {
-    "bus_voltage": 19.80,
-    "bus_current": 14.50,
+    "bus_voltage": 20.16,
+    "bus_current": 12.50,
     "batteries": [
-      { "id": 1, "voltage": 19.82, "current": 3.65, "temp": 28.4, "soc": 87.5 },
-      { "id": 2, "voltage": 19.78, "current": 3.60, "temp": 29.1, "soc": 86.8 },
-      { "id": 3, "voltage": 19.81, "current": 3.62, "temp": 27.8, "soc": 87.2 },
-      { "id": 4, "voltage": 19.80, "current": 3.63, "temp": 28.2, "soc": 87.0 }
+      { "id": 1, "voltage": 20.18, "current": 3.15, "temp": 28.4, "soc": 83.6 },
+      { "id": 2, "voltage": 20.12, "current": 3.10, "temp": 29.1, "soc": 82.4 },
+      { "id": 3, "voltage": 20.21, "current": 3.12, "temp": 27.8, "soc": 84.2 },
+      { "id": 4, "voltage": 20.15, "current": 3.13, "temp": 28.2, "soc": 83.0 }
     ],
     "rails": {
-      "drive": { "v": 19.80, "i": 8.50, "state": 1 },
+      "drive": { "v": 20.16, "i": 7.50, "state": 1 },
       "jetson": { "v": 12.02, "i": 2.35, "state": 1 },
       "rpi_esp": { "v": 5.05, "i": 4.12, "state": 1 },
       "arm": { "v": 12.01, "i": 0.85, "state": 1 },

@@ -67,6 +67,18 @@ function createServer() {
         res.json({ success: true, topicsUpdated: count });
     });
 
+    // Camera feed status endpoint (scanned by camera components)
+    app.get('/api/camera/:id/feed_status', function (req, res) {
+        var camId = parseInt(req.params.id, 10);
+        res.json({
+            id: camId,
+            online: false,
+            status: 'NO_SIGNAL',
+            message: 'Camera video downlink feed hardware not implemented yet',
+            timestamp: Date.now()
+        });
+    });
+
     app.get('/api/gateway/status', function (req, res) {
         res.json({
             isSimMode: gateway.isSimMode,
@@ -109,6 +121,17 @@ function startServer(port) {
             console.log('[Orion Gateway] History at http://localhost:' + actualPort + '/history');
             console.log('[Orion Gateway] Realtime WS at ws://localhost:' + actualPort + '/realtime');
             console.log('[Orion Gateway] Simulation Mode: ' + (bundle.gateway.isSimMode ? 'ACTIVE' : 'OFF (AWAITING MQTT)'));
+
+            if (process.argv.includes('--open') || process.env.OPEN_BROWSER === 'true') {
+                var openUrl = 'http://localhost:' + actualPort;
+                var openCmd = process.platform === 'win32'
+                    ? 'start "" "' + openUrl + '"'
+                    : (process.platform === 'darwin' ? 'open "' + openUrl + '"' : 'xdg-open "' + openUrl + '"');
+                require('child_process').exec(openCmd, function (openErr) {
+                    if (openErr) console.warn('[Orion Gateway] Auto-open browser notice:', openErr.message);
+                });
+            }
+
             resolve({ server: server, port: actualPort, gateway: bundle.gateway });
         });
     });
