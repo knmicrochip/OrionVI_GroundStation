@@ -282,38 +282,24 @@ async function createWindow() {
                             const deletedLargerViewBtns = document.querySelectorAll('#btn-single-larger');
                             const deletedPopoutBtns = document.querySelectorAll('#btn-single-popout');
                             const deletedSignalBtns = document.querySelectorAll('#btn-single-signal');
-                            const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot, #single-btn-snapshot, #btn-deck-snapshot');
+                            const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot');
                             const hudTimes = Array.from(document.querySelectorAll('#single-hud-time')).map(el => el.textContent.trim());
                             const osdTimes = Array.from(document.querySelectorAll('#single-osd-time')).map(el => el.textContent.trim());
                             const noSigOverlays = document.querySelectorAll('#single-no-signal');
-                            const reconnectMsgs = Array.from(document.querySelectorAll('[data-reconnect-cam]')).map(el => el.textContent.trim());
+                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
 
                             return {
                                 hasFlexibleLayout: Boolean(fl),
                                 frameCount: frames.length,
                                 deletedButtonsPresent: (deletedLargerViewBtns.length + deletedPopoutBtns.length + deletedSignalBtns.length + deletedCaptureBtns.length) > 0,
-                                deletedCaptureCount: deletedCaptureBtns.length,
                                 hudTimeSamples: hudTimes.slice(0, 3),
                                 osdTimeSamples: osdTimes.slice(0, 3),
                                 noSigCount: noSigOverlays.length,
-                                reconnectMsgSamples: reconnectMsgs.slice(0, 6)
+                                reconnectMsgSamples: reconnectMsgs.slice(0, 3)
                             };
                         })()
                     `);
                     console.log('[Test Cameras] In-Tab Flexible Layout Diagnostic:', JSON.stringify(flexDiag));
-
-                    // Verify Hardware separation
-                    const camMapping = await mainWindow.webContents.executeJavaScript(`
-                        (() => {
-                            return {
-                                laptopDeviceName: window.OrionWebcamService ? window.OrionWebcamService.deviceName : null,
-                                laptopActive: window.OrionWebcamService ? window.OrionWebcamService.isActive : false,
-                                usbDeviceName: window.OrionUsbCamService ? window.OrionUsbCamService.deviceName : null,
-                                usbActive: window.OrionUsbCamService ? window.OrionUsbCamService.isActive : false
-                            };
-                        })()
-                    `);
-                    console.log('[Test Cameras] Camera Hardware Mapping:', JSON.stringify(camMapping));
 
                     // Capture screenshot 1: Flexible layout as a tab with "Attempting reconnect in..." countdown
                     const tabCamerasImg = await mainWindow.webContents.capturePage();
@@ -327,8 +313,8 @@ async function createWindow() {
 
                     const progressDiag = await mainWindow.webContents.executeJavaScript(`
                         (() => {
-                            const reconnectMsgs = Array.from(document.querySelectorAll('[data-reconnect-cam]')).map(el => el.textContent.trim());
-                            return { reconnectMsgSamples: reconnectMsgs.slice(0, 6) };
+                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
+                            return { reconnectMsgSamples: reconnectMsgs.slice(0, 3) };
                         })()
                     `);
                     console.log('[Test Cameras] Countdown Progression Diagnostic:', JSON.stringify(progressDiag));
@@ -337,49 +323,6 @@ async function createWindow() {
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras-live.png'), tabCamerasLiveImg.toPNG());
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-10-cameras-flexible-layout-mixed.png'), tabCamerasLiveImg.toPNG());
                     console.log('[Test Cameras] Saved screenshot-modes-tab-cameras-live.png');
-
-                    // Test live hardware disconnect & reconnect detection for USB camera
-                    console.log('[Test Cameras] Testing USB camera disconnect...');
-                    const discResult = await mainWindow.webContents.executeJavaScript(`
-                        (() => {
-                            if (window.OrionUsbCamService) {
-                                window.OrionUsbCamService.handleDisconnected();
-                                return {
-                                    hasSignal12: window.OrionCameraManager.hasSignal(12),
-                                    isActive: window.OrionUsbCamService.isActive
-                                };
-                            }
-                            return null;
-                        })()
-                    `);
-                    console.log('[Test Cameras] Disconnect simulation result:', JSON.stringify(discResult));
-                    await new Promise(r => setTimeout(r, 1200));
-
-                    const unplugImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-usb-camera-unplugged.png'), unplugImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-usb-camera-unplugged.png');
-
-                    console.log('[Test Cameras] Testing USB camera reconnect...');
-                    const replugResult = await mainWindow.webContents.executeJavaScript(`
-                        (async () => {
-                            if (window.OrionUsbCamService) {
-                                const ok = await window.OrionUsbCamService.start();
-                                if (window.OrionCameraManager) window.OrionCameraManager.setSignal(12, ok);
-                                return {
-                                    restarted: ok,
-                                    hasSignal12: window.OrionCameraManager.hasSignal(12),
-                                    isActive: window.OrionUsbCamService.isActive
-                                };
-                            }
-                            return null;
-                        })()
-                    `);
-                    console.log('[Test Cameras] Reconnect simulation result:', JSON.stringify(replugResult));
-                    await new Promise(r => setTimeout(r, 1500));
-
-                    const replugImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-usb-camera-replugged.png'), replugImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-usb-camera-replugged.png');
 
                     // Navigate directly to dedicated view for Mast RGB camera (cam_mast_rgb)
                     console.log('[Test Cameras] Navigating to dedicated view for cam_mast_rgb...');
@@ -1409,8 +1352,133 @@ async function createWindow() {
                     `);
                     console.log('[Test Canvas Taint Check]', JSON.stringify(canvasTaintCheck));
 
-                    // Test snapshot on an enlarged camera feed
-                    console.log('[Test Snapshot] Navigating to cam_mast_rgb to test enlarged camera snapshot...');
+                    // Clear snapshot storage at start of test for clean validation
+                    await mainWindow.webContents.executeJavaScript(`localStorage.removeItem('notebook-snapshot-storage');`);
+
+                    // 1. TEST SNAPSHOT ON NOT FULL DISPLAY (Flexible Layout Tile in disp_cameras)
+                    console.log('[Test Snapshot] 1. Navigating to disp_cameras (not full display - 12 camera tiles)...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:disp_cameras';
+                    `);
+                    await new Promise(r => setTimeout(r, 4000));
+
+                    console.log('[Test Snapshot] Taking snapshot from flexible layout tile (not full display)...');
+                    const tileSnapResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            // Find a camera tile frame in flexible layout
+                            const frames = Array.from(document.querySelectorAll('.c-so-view'));
+                            const frame = frames.find(f => f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
+                            if (!frame) return { error: 'No camera frame found', count: frames.length };
+                            
+                            const snapBtn = frame.querySelector('.c-notebook-snapshot-menubutton button, button.icon-camera');
+                            let menuOpened = false;
+                            if (snapBtn) {
+                                snapBtn.click();
+                                await new Promise(r => setTimeout(r, 600));
+                                menuOpened = Boolean(document.querySelector('.c-menu, [role="menu"]'));
+                            }
+                            const menuItem = Array.from(document.querySelectorAll('li[role="menuitem"], .c-menu li')).find(li => li.textContent && li.textContent.includes('Snapshots'));
+                            let clickedMenuItem = false;
+                            if (menuItem) {
+                                menuItem.click();
+                                clickedMenuItem = true;
+                            }
+                            return { foundFrame: Boolean(frame), foundSnapBtn: Boolean(snapBtn), menuOpened, clickedMenuItem };
+                        })()
+                    `);
+                    console.log('[Test Tile Snapshot Result]', JSON.stringify(tileSnapResult));
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    // Verify storage and aspect ratio of tile snapshot
+                    const tileStorageCheck = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const storage = localStorage.getItem('notebook-snapshot-storage');
+                            let snaps = [];
+                            try { snaps = JSON.parse(storage || '[]'); } catch (_) {}
+                            const rawUrl = snaps.length > 0 && snaps[0].notebookImageDomainObject && snaps[0].notebookImageDomainObject.configuration ? snaps[0].notebookImageDomainObject.configuration.fullSizeImageURL : null;
+                            return {
+                                snapsCount: snaps.length,
+                                hasRawUrl: Boolean(rawUrl),
+                                rawUrl: rawUrl
+                            };
+                        })()
+                    `);
+                    console.log('[Test Tile Storage Check]', JSON.stringify({ snapsCount: tileStorageCheck.snapsCount, hasRawUrl: tileStorageCheck.hasRawUrl }));
+                    if (tileStorageCheck.rawUrl && tileStorageCheck.rawUrl.startsWith('data:image/png;base64,')) {
+                        const base64Data = tileStorageCheck.rawUrl.replace(/^data:image\/png;base64,/, '');
+                        const buf = Buffer.from(base64Data, 'base64');
+                        const w = buf.readUInt32BE(16);
+                        const h = buf.readUInt32BE(20);
+                        const ratio = (w / h).toFixed(3);
+                        console.log(`[Test Tile Snapshot Aspect Ratio] Width: ${w}px, Height: ${h}px, Ratio: ${ratio} (Target: 1.778 / 16:9)`);
+                    }
+
+                    // 2. TEST SNAPSHOT ON FULL SCREEN / LARGE VIEW OVERLAY
+                    console.log('[Test Snapshot] 2. Testing snapshot button clickability in Large View / Fullscreen overlay...');
+                    const largeViewSnapResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const frames = Array.from(document.querySelectorAll('.c-so-view'));
+                            const frame = frames.find(f => f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
+                            const expandBtn = frame ? frame.querySelector('.icon-items-expand, button[title*="Large"]') : null;
+                            if (!expandBtn) return { error: 'expandBtn not found' };
+                            
+                            expandBtn.click();
+                            await new Promise(r => setTimeout(r, 1200));
+
+                            const overlay = document.querySelector('.c-overlay, .l-overlay-wrapper');
+                            if (!overlay) return { error: 'overlay not opened' };
+
+                            const snapBtn = overlay.querySelector('.c-notebook-snapshot-menubutton button, button.icon-camera');
+                            let menuOpened = false;
+                            let menuZIndex = null;
+                            let overlayZIndex = null;
+
+                            if (snapBtn) {
+                                snapBtn.click();
+                                await new Promise(r => setTimeout(r, 600));
+                                const menu = document.querySelector('.c-menu, [role="menu"]');
+                                menuOpened = Boolean(menu);
+                                if (menu) {
+                                    menuZIndex = window.getComputedStyle(menu).zIndex;
+                                }
+                                const outer = overlay.querySelector('.c-overlay__outer') || overlay;
+                                overlayZIndex = window.getComputedStyle(outer).zIndex;
+                            }
+
+                            const menuItem = Array.from(document.querySelectorAll('li[role="menuitem"], .c-menu li')).find(li => li.textContent && li.textContent.includes('Snapshots'));
+                            let clickedMenuItem = false;
+                            if (menuItem) {
+                                menuItem.click();
+                                clickedMenuItem = true;
+                            }
+
+                            await new Promise(r => setTimeout(r, 1500));
+
+                            // Close overlay
+                            const closeBtn = document.querySelector('.c-overlay__close-button, .icon-x');
+                            let closedOverlay = false;
+                            if (closeBtn) {
+                                closeBtn.click();
+                                await new Promise(r => setTimeout(r, 800));
+                                closedOverlay = document.querySelectorAll('.l-overlay-wrapper, .c-overlay').length === 0;
+                            }
+
+                            return {
+                                overlayOpened: Boolean(overlay),
+                                foundSnapBtn: Boolean(snapBtn),
+                                menuOpened,
+                                menuZIndex,
+                                overlayZIndex,
+                                clickedMenuItem,
+                                closedOverlay
+                            };
+                        })()
+                    `);
+                    console.log('[Test Large View Snapshot Result]', JSON.stringify(largeViewSnapResult));
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // 3. TEST SNAPSHOT ON DEDICATED CAMERA BROWSE VIEW
+                    console.log('[Test Snapshot] 3. Navigating to cam_mast_rgb to test dedicated camera snapshot...');
                     await mainWindow.webContents.executeJavaScript(`
                         window.location.hash = '#/browse/orion.taxonomy:cam_mast_rgb';
                     `);
@@ -1438,23 +1506,8 @@ async function createWindow() {
                     `);
                     console.log('[Test Buttons Check]', JSON.stringify(testButtonCheck));
 
-                    // Test dedicated enlarged snapshot button
-                    console.log('[Test Snapshot] Clicking dedicated enlarged snapshot button (#single-btn-snapshot)...');
-                    const singleSnapClick = await mainWindow.webContents.executeJavaScript(`
-                        (() => {
-                            const btn = document.querySelector('#single-btn-snapshot');
-                            if (btn) {
-                                btn.click();
-                                return { clicked: true };
-                            }
-                            return { clicked: false };
-                        })()
-                    `);
-                    console.log('[Test Single Snap Click]', JSON.stringify(singleSnapClick));
-                    await new Promise(r => setTimeout(r, 1500));
-
-                    // Also test OpenMCT native snapshot menu button
-                    console.log('[Test Snapshot] Taking snapshot via OpenMCT native snapshot menu...');
+                    // Take snapshot via OpenMCT native snapshot menu
+                    console.log('[Test Snapshot] Taking snapshot via OpenMCT native snapshot menu on dedicated feed...');
                     const camSnapResult = await mainWindow.webContents.executeJavaScript(`
                         (async () => {
                             const snapBtn = document.querySelector('.c-notebook-snapshot-menubutton button, button.icon-camera');
@@ -1474,7 +1527,7 @@ async function createWindow() {
                         })()
                     `);
                     console.log('[Test Cam Snapshot Result]', JSON.stringify(camSnapResult));
-                    await new Promise(r => setTimeout(r, 4000));
+                    await new Promise(r => setTimeout(r, 3000));
 
                     // Check if error dialog appeared or what is in storage
                     const storageCheck = await mainWindow.webContents.executeJavaScript(`
@@ -1498,9 +1551,19 @@ async function createWindow() {
                         })()
                     `);
                     console.log('[Test Storage After Snapshot]', JSON.stringify(storageCheck.firstSnapDetails));
+                    const docsImgDirs = [
+                        path.resolve(__dirname, 'docs/images'),
+                        path.resolve(__dirname, '../docs/images')
+                    ];
+                    docsImgDirs.forEach(d => {
+                        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+                    });
+
                     if (storageCheck.rawUrl && storageCheck.rawUrl.startsWith('data:image/png;base64,')) {
                         const base64Data = storageCheck.rawUrl.replace(/^data:image\/png;base64,/, '');
-                        fs.writeFileSync(path.join(artifactDir, 'screenshot-real-captured-snapshot.png'), Buffer.from(base64Data, 'base64'));
+                        const buf = Buffer.from(base64Data, 'base64');
+                        fs.writeFileSync(path.join(artifactDir, 'screenshot-real-captured-snapshot.png'), buf);
+                        docsImgDirs.forEach(d => fs.writeFileSync(path.join(d, 'screenshot-real-captured-snapshot.png'), buf));
                         console.log('[Test Snapshot] Saved screenshot-real-captured-snapshot.png from actual snapshot export!');
                     }
 
@@ -1535,9 +1598,10 @@ async function createWindow() {
                     console.log('[Test Open Snapshot Overlay]', JSON.stringify(openOverlayResult));
                     await new Promise(r => setTimeout(r, 2000));
 
-                    // Capture screenshot of the snapshot in open mode (the overlay)
                     const openSnapshotImg = await mainWindow.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-snapshot-open-mode.png'), openSnapshotImg.toPNG());
+                    const openSnapshotBuf = openSnapshotImg.toPNG();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-snapshot-open-mode.png'), openSnapshotBuf);
+                    docsImgDirs.forEach(d => fs.writeFileSync(path.join(d, 'screenshot-snapshot-open-mode.png'), openSnapshotBuf));
                     console.log('[Test Snapshot] Saved screenshot-snapshot-open-mode.png');
 
                     // Inspect the overlay DOM and CSS

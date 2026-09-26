@@ -235,17 +235,18 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) !important;
         }
 
-        /* Ensure all floating menus, create dropdowns, and context menus appear in front of #openmct-app (z-index 100) */
+        /* Ensure all floating menus, create dropdowns, and context menus appear in front of overlays, dialogs, and preview panes */
         .c-menu,
         .c-super-menu,
         .c-create-menu,
         .c-menu--pointer,
         [class*="c-menu"],
         [class*="c-super-menu"] {
-            z-index: 10000 !important;
+            z-index: 10050 !important;
+            pointer-events: auto !important;
         }
 
-        /* Ensure all modal dialogs and overlays appear above menus */
+        /* Ensure all modal dialogs and overlays appear above base UI */
         .l-overlay-wrapper,
         .c-overlay,
         .c-modal,
@@ -435,9 +436,21 @@
         }
 
         .l-overlay-wrapper.l-overlay-large .l-browse-bar,
-        .l-overlay-large .l-browse-bar {
+        .l-overlay-large .l-browse-bar,
+        .l-overlay-wrapper.l-overlay-fullscreen .l-browse-bar,
+        .l-overlay-fullscreen .l-browse-bar {
             margin-right: 50px !important;
             margin-bottom: 5px !important;
+        }
+
+        /* Snapshot Button & Menu Interaction Safeguards */
+        .c-notebook-snapshot-menubutton,
+        .c-notebook-snapshot-menubutton button,
+        .c-notebook-snapshot-menubutton .icon-camera {
+            pointer-events: auto !important;
+            cursor: pointer !important;
+            position: relative !important;
+            z-index: 25 !important;
         }
 
         /* Expanded view & modal close button: must always be on top and clickable */

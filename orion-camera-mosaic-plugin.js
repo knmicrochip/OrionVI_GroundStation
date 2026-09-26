@@ -525,6 +525,36 @@
             window.open(url, `_blank_cam_${cam.id}`, 'width=840,height=540,menubar=no,toolbar=no,location=no,status=no');
         }
 
+        captureCameraFrame(camId) {
+            const cam = this.getCameraById(camId);
+            if (!cam) return null;
+            const exportCvs = document.createElement('canvas');
+            exportCvs.width = 1280;
+            exportCvs.height = 720;
+            const ctx = exportCvs.getContext('2d');
+            const now = Date.now();
+            drawCameraScene(ctx, cam, now, 1280, 720);
+
+            let dataUrl = null;
+            try {
+                dataUrl = exportCvs.toDataURL('image/png');
+            } catch (_) {}
+
+            const thumbCvs = document.createElement('canvas');
+            thumbCvs.width = 60;
+            thumbCvs.height = 34;
+            const tCtx = thumbCvs.getContext('2d');
+            tCtx.drawImage(exportCvs, 0, 0, 60, 34);
+            let thumbUrl = null;
+            try {
+                thumbUrl = thumbCvs.toDataURL('image/png');
+            } catch (_) {
+                thumbUrl = dataUrl;
+            }
+
+            return { dataUrl, thumbUrl, width: 1280, height: 720 };
+        }
+
         async scanForFeed(camId) {
             const id = parseInt(camId, 10);
 
@@ -926,6 +956,61 @@
                     };
                 }
             });
+            // 5. Install Snapshot Aspect-Ratio Preservation Hook
+            // Ensures that when any snapshot is saved to Open MCT Notebook for an orion camera feed,
+            // the fullSizeImageURL is guaranteed to be authentic 16:9 widescreen format (1280x720)
+            // even if captured from a narrow portrait flexible layout tile or large view.
+            function tryInstallSnapshotPreservationHook() {
+                const indicatorObj = openmct.indicators && openmct.indicators.indicatorObjects &&
+                    openmct.indicators.indicatorObjects.find(i => i.key === 'notebook-snapshot-indicator');
+                let sc = null;
+                if (indicatorObj && indicatorObj.element && indicatorObj.element.__vue_app__) {
+                    const app = indicatorObj.element.__vue_app__;
+                    sc = app._instance && app._instance.provides && app._instance.provides.snapshotContainer;
+                }
+                if (!sc) {
+                    const snapBtn = document.querySelector('.c-notebook-snapshot-menubutton');
+                    if (snapBtn && snapBtn.__vueParentComponent && snapBtn.__vueParentComponent.proxy) {
+                        const ns = snapBtn.__vueParentComponent.proxy.notebookSnapshot;
+                        if (ns && ns.snapshotContainer) sc = ns.snapshotContainer;
+                    }
+                }
+                if (sc && !sc._aspectRatioHookInstalled) {
+                    sc._aspectRatioHookInstalled = true;
+                    const origAdd = sc.addSnapshot.bind(sc);
+                    sc.addSnapshot = function (notebookImageDomainObject, embedObject) {
+                        try {
+                            const domainObj = embedObject && embedObject.domainObject;
+                            let camKey = (domainObj && domainObj.identifier && domainObj.identifier.key) ||
+                                (embedObject && embedObject.historicLink && (embedObject.historicLink.match(/cam_\w+/) || [])[0]);
+                            if (camKey) {
+                                const cam = cameraManager.getCameraByKey(camKey);
+                                if (cam) {
+                                    const cleanFrame = cameraManager.captureCameraFrame(cam.id);
+                                    if (cleanFrame) {
+                                        if (notebookImageDomainObject && notebookImageDomainObject.configuration) {
+                                            notebookImageDomainObject.configuration.fullSizeImageURL = cleanFrame.dataUrl;
+                                        }
+                                        if (embedObject.snapshot && embedObject.snapshot.thumbnailImage) {
+                                            embedObject.snapshot.thumbnailImage.src = cleanFrame.thumbUrl;
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            console.warn('[Camera Snapshot Hook Error]', e);
+                        }
+                        return origAdd(notebookImageDomainObject, embedObject);
+                    };
+                }
+            }
+
+            setTimeout(tryInstallSnapshotPreservationHook, 800);
+            setTimeout(tryInstallSnapshotPreservationHook, 2500);
+            setTimeout(tryInstallSnapshotPreservationHook, 5000);
+            openmct.on('start', () => {
+                setTimeout(tryInstallSnapshotPreservationHook, 500);
+            });
         };
     }
 
@@ -940,6 +1025,7 @@
         const cam = cameraManager.getCameraByKey(camKey);
         const initialSig = cameraManager.hasSignal(cam.id);
 
+        container.classList.add('orion-camera-feed-container');
         container.style.cssText = `
             display: flex;
             flex-direction: column;
@@ -979,9 +1065,9 @@
                 <canvas id="single-cam-canvas" style="width: 100%; height: 100%; object-fit: contain; display: block;"></canvas>
                 
                 <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
-                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 20; pointer-events: none; user-select: none;">
-                    <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 58px; height: 58px; object-fit: contain; margin-bottom: 8px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
-                    <div style="font-family: monospace, sans-serif; font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 4px 14px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
+                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 10; pointer-events: none; user-select: none;">
+                    <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 68px; height: 68px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
+                    <div style="font-family: monospace, sans-serif; font-size: 15px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 18px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
                         NO SIGNAL
                     </div>
                     <div id="single-reconnect-${cam.id}" data-reconnect-cam="${cam.id}" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
@@ -989,10 +1075,10 @@
                     </div>
                 </div>
 
-                <div id="single-role-badge" style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15; display: ${initialSig ? 'block' : 'none'};">
+                <div style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15;">
                     ROLE: ${cam.role.toUpperCase()}
                 </div>
-                <div id="single-osd-time" style="position: absolute; bottom: 8px; right: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #38bdf8; z-index: 15; display: ${initialSig ? 'block' : 'none'};">
+                <div id="single-osd-time" style="position: absolute; bottom: 8px; right: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #38bdf8; z-index: 15;">
                     UTC: --:--:--.---
                 </div>
             </div>
@@ -1009,11 +1095,7 @@
             const hudDot = container.querySelector('#single-hud-dot');
             const hudStatus = container.querySelector('#single-hud-status');
             const hudFps = container.querySelector('#single-hud-fps');
-            const roleEl = container.querySelector('#single-role-badge');
-            const osdEl = container.querySelector('#single-osd-time');
             if (noSigOverlay) noSigOverlay.style.display = hasSig ? 'none' : 'flex';
-            if (roleEl) roleEl.style.display = hasSig ? 'block' : 'none';
-            if (osdEl) osdEl.style.display = hasSig ? 'block' : 'none';
             if (hudDot) hudDot.style.background = hasSig ? '#22c55e' : '#ef4444';
             if (hudStatus) {
                 hudStatus.textContent = hasSig ? 'LIVE' : 'NO SIGNAL';
@@ -1113,6 +1195,7 @@
         function createCameraTile(cam, isHero = false) {
             const tile = document.createElement('div');
             tile.dataset.camId = cam.id;
+            tile.classList.add('orion-camera-feed-container');
             tile.style.cssText = `
                 position: relative;
                 display: flex;
