@@ -439,6 +439,20 @@
         }
         updateSignalUI();
 
+        function isUsbCamera(device) {
+            if (!device) return false;
+            const label = (device.label || '').toLowerCase();
+            return /usb|logi|c270|c920|c922|c310|brio|streamcam|meet|external|uvc|camlink|capture|plug|obs/i.test(label);
+        }
+
+        function isLaptopCamera(device) {
+            if (!device) return false;
+            const label = (device.label || '').toLowerCase();
+            if (isUsbCamera(device)) return false;
+            return /integrated|internal|built-in|builtin|facetime|embedded/i.test(label) ||
+                   (/front|laptop/i.test(label) && !/usb|external|logi/i.test(label));
+        }
+
         // Query and separate physical camera devices into Laptop Webcam and external USB Camera
         async function enumerateCameraDevices() {
             if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -459,24 +473,28 @@
                 }
 
                 if (videoInputs.length === 0) return { laptopDevice: null, usbDevice: null };
+
+                let laptop = videoInputs.find(d => isLaptopCamera(d)) || null;
+                let usb = videoInputs.find(d => isUsbCamera(d)) || null;
+
                 if (videoInputs.length === 1) {
-                    // Only 1 device attached: Laptop Webcam. No USB Camera!
-                    return { laptopDevice: videoInputs[0], usbDevice: null };
+                    const single = videoInputs[0];
+                    if (isUsbCamera(single)) {
+                        return { laptopDevice: null, usbDevice: single };
+                    } else if (isLaptopCamera(single)) {
+                        return { laptopDevice: single, usbDevice: null };
+                    } else {
+                        return { laptopDevice: single, usbDevice: null };
+                    }
                 }
 
-                const isLaptopLabel = (label) => /integrated|internal|facetime|built-in|front|user|laptop|hd webcam/i.test(label || '');
-                const isUsbLabel = (label) => /usb|external|uvc|plug|camlink|capture|c920|c270|logi/i.test(label || '');
-
-                let laptop = videoInputs.find(d => isLaptopLabel(d.label));
-                let usb = videoInputs.find(d => isUsbLabel(d.label));
-
-                if (!laptop && !usb) {
-                    laptop = videoInputs[0];
-                    usb = videoInputs[1];
+                if (!laptop && usb) {
+                    laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
                 } else if (laptop && !usb) {
                     usb = videoInputs.find(d => d.deviceId !== laptop.deviceId) || null;
-                } else if (!laptop && usb) {
-                    laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
+                } else if (!laptop && !usb && videoInputs.length >= 2) {
+                    laptop = videoInputs[0];
+                    usb = videoInputs[1];
                 }
 
                 // Strictly forbid same deviceId
@@ -495,8 +513,15 @@
         let webcamVideo = null;
         let isWebcamActive = false;
 
+        function hasLiveTrack() {
+            if (!webcamStream) return false;
+            const tracks = webcamStream.getVideoTracks();
+            if (!tracks || tracks.length === 0) return false;
+            return tracks.some(t => t.readyState === 'live' && t.enabled);
+        }
+
         async function startWebcam() {
-            if (isWebcamActive && webcamVideo && webcamVideo.readyState >= 2) return true;
+            if (isWebcamActive && webcamVideo && webcamVideo.readyState >= 2 && hasLiveTrack()) return true;
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     throw new Error('getUserMedia not supported');
@@ -524,6 +549,17 @@
                 };
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 webcamStream = stream;
+
+                const tracks = stream.getVideoTracks();
+                tracks.forEach(track => {
+                    const onEnded = () => {
+                        console.warn('[Webcam Popout] Track onended fired!');
+                        stopWebcam();
+                    };
+                    track.onended = onEnded;
+                    track.addEventListener('ended', onEnded);
+                });
+
                 const v = document.createElement('video');
                 v.setAttribute('playsinline', 'true');
                 v.setAttribute('autoplay', 'true');
@@ -564,6 +600,7 @@
             }
             isWebcamActive = false;
             hasSignal = false;
+            reconnectCountdown = 5;
             updateSignalUI();
         }
 
@@ -574,8 +611,18 @@
         // Listen for hardware plug/unplug events
         if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
             navigator.mediaDevices.addEventListener('devicechange', async () => {
-                if (!hasSignal && (activeCam.id === 11 || activeCam.id === 12)) {
-                    await startWebcam();
+                const { laptopDevice, usbDevice } = await enumerateCameraDevices();
+                const targetDevice = (activeCam.id === 12) ? usbDevice : laptopDevice;
+                if (targetDevice) {
+                    if (!isWebcamActive || !hasLiveTrack()) {
+                        console.log('[Webcam Popout] Target device detected, starting...');
+                        await startWebcam();
+                    }
+                } else {
+                    if (isWebcamActive) {
+                        console.warn('[Webcam Popout] Target device removed, stopping...');
+                        stopWebcam();
+                    }
                 }
             });
         }
@@ -607,6 +654,12 @@
         }
 
         setInterval(async () => {
+            // Track liveness check
+            if (isWebcamActive && (!hasLiveTrack() || (webcamStream && webcamStream.getVideoTracks()[0].readyState === 'ended'))) {
+                console.warn('[Webcam Popout] Live track ended in interval check');
+                stopWebcam();
+            }
+
             if (hasSignal) {
                 reconnectCountdown = 5;
                 return;

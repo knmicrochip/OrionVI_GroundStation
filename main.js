@@ -252,6 +252,11 @@ async function createWindow() {
                     `);
                     await new Promise(r => setTimeout(r, 3000));
 
+                    const devList = await mainWindow.webContents.executeJavaScript(`
+                        navigator.mediaDevices.enumerateDevices().then(devs => devs.map(d => ({ kind: d.kind, label: d.label, deviceId: d.deviceId })))
+                    `);
+                    console.log('[Test Devices List]', JSON.stringify(devList));
+
                     // Inspect available tabs and click the CAMERAS tab
                     const tabDiag = await mainWindow.webContents.executeJavaScript(`
                         (() => {
@@ -277,24 +282,38 @@ async function createWindow() {
                             const deletedLargerViewBtns = document.querySelectorAll('#btn-single-larger');
                             const deletedPopoutBtns = document.querySelectorAll('#btn-single-popout');
                             const deletedSignalBtns = document.querySelectorAll('#btn-single-signal');
-                            const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot');
+                            const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot, #single-btn-snapshot, #btn-deck-snapshot');
                             const hudTimes = Array.from(document.querySelectorAll('#single-hud-time')).map(el => el.textContent.trim());
                             const osdTimes = Array.from(document.querySelectorAll('#single-osd-time')).map(el => el.textContent.trim());
                             const noSigOverlays = document.querySelectorAll('#single-no-signal');
-                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
+                            const reconnectMsgs = Array.from(document.querySelectorAll('[data-reconnect-cam]')).map(el => el.textContent.trim());
 
                             return {
                                 hasFlexibleLayout: Boolean(fl),
                                 frameCount: frames.length,
                                 deletedButtonsPresent: (deletedLargerViewBtns.length + deletedPopoutBtns.length + deletedSignalBtns.length + deletedCaptureBtns.length) > 0,
+                                deletedCaptureCount: deletedCaptureBtns.length,
                                 hudTimeSamples: hudTimes.slice(0, 3),
                                 osdTimeSamples: osdTimes.slice(0, 3),
                                 noSigCount: noSigOverlays.length,
-                                reconnectMsgSamples: reconnectMsgs.slice(0, 3)
+                                reconnectMsgSamples: reconnectMsgs.slice(0, 6)
                             };
                         })()
                     `);
                     console.log('[Test Cameras] In-Tab Flexible Layout Diagnostic:', JSON.stringify(flexDiag));
+
+                    // Verify Hardware separation
+                    const camMapping = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            return {
+                                laptopDeviceName: window.OrionWebcamService ? window.OrionWebcamService.deviceName : null,
+                                laptopActive: window.OrionWebcamService ? window.OrionWebcamService.isActive : false,
+                                usbDeviceName: window.OrionUsbCamService ? window.OrionUsbCamService.deviceName : null,
+                                usbActive: window.OrionUsbCamService ? window.OrionUsbCamService.isActive : false
+                            };
+                        })()
+                    `);
+                    console.log('[Test Cameras] Camera Hardware Mapping:', JSON.stringify(camMapping));
 
                     // Capture screenshot 1: Flexible layout as a tab with "Attempting reconnect in..." countdown
                     const tabCamerasImg = await mainWindow.webContents.capturePage();
@@ -308,8 +327,8 @@ async function createWindow() {
 
                     const progressDiag = await mainWindow.webContents.executeJavaScript(`
                         (() => {
-                            const reconnectMsgs = Array.from(document.querySelectorAll('#single-reconnect-msg')).map(el => el.textContent.trim());
-                            return { reconnectMsgSamples: reconnectMsgs.slice(0, 3) };
+                            const reconnectMsgs = Array.from(document.querySelectorAll('[data-reconnect-cam]')).map(el => el.textContent.trim());
+                            return { reconnectMsgSamples: reconnectMsgs.slice(0, 6) };
                         })()
                     `);
                     console.log('[Test Cameras] Countdown Progression Diagnostic:', JSON.stringify(progressDiag));
@@ -318,6 +337,49 @@ async function createWindow() {
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras-live.png'), tabCamerasLiveImg.toPNG());
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-10-cameras-flexible-layout-mixed.png'), tabCamerasLiveImg.toPNG());
                     console.log('[Test Cameras] Saved screenshot-modes-tab-cameras-live.png');
+
+                    // Test live hardware disconnect & reconnect detection for USB camera
+                    console.log('[Test Cameras] Testing USB camera disconnect...');
+                    const discResult = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            if (window.OrionUsbCamService) {
+                                window.OrionUsbCamService.handleDisconnected();
+                                return {
+                                    hasSignal12: window.OrionCameraManager.hasSignal(12),
+                                    isActive: window.OrionUsbCamService.isActive
+                                };
+                            }
+                            return null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] Disconnect simulation result:', JSON.stringify(discResult));
+                    await new Promise(r => setTimeout(r, 1200));
+
+                    const unplugImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-usb-camera-unplugged.png'), unplugImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-usb-camera-unplugged.png');
+
+                    console.log('[Test Cameras] Testing USB camera reconnect...');
+                    const replugResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            if (window.OrionUsbCamService) {
+                                const ok = await window.OrionUsbCamService.start();
+                                if (window.OrionCameraManager) window.OrionCameraManager.setSignal(12, ok);
+                                return {
+                                    restarted: ok,
+                                    hasSignal12: window.OrionCameraManager.hasSignal(12),
+                                    isActive: window.OrionUsbCamService.isActive
+                                };
+                            }
+                            return null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] Reconnect simulation result:', JSON.stringify(replugResult));
+                    await new Promise(r => setTimeout(r, 1500));
+
+                    const replugImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-usb-camera-replugged.png'), replugImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-usb-camera-replugged.png');
 
                     // Navigate directly to dedicated view for Mast RGB camera (cam_mast_rgb)
                     console.log('[Test Cameras] Navigating to dedicated view for cam_mast_rgb...');

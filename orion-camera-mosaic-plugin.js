@@ -35,6 +35,21 @@
     // =========================================================================
     // WEBCAM & USB CAMERA HARDWARE STREAM SERVICE (HTML5 getUserMedia Singleton)
     // =========================================================================
+    // Helper functions to accurately identify camera hardware types without confusion
+    function isUsbCamera(device) {
+        if (!device) return false;
+        const label = (device.label || '').toLowerCase();
+        return /usb|logi|c270|c920|c922|c310|brio|streamcam|meet|external|uvc|camlink|capture|plug|obs/i.test(label);
+    }
+
+    function isLaptopCamera(device) {
+        if (!device) return false;
+        const label = (device.label || '').toLowerCase();
+        if (isUsbCamera(device)) return false;
+        return /integrated|internal|built-in|builtin|facetime|embedded/i.test(label) ||
+               (/front|laptop/i.test(label) && !/usb|external|logi/i.test(label));
+    }
+
     // Helper to query and resolve camera devices into distinct laptop and USB devices
     async function enumerateCameraDevices() {
         if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
@@ -58,30 +73,30 @@
                 return { laptopDevice: null, usbDevice: null };
             }
 
+            // Identify laptop candidates and USB candidates
+            let laptop = videoInputs.find(d => isLaptopCamera(d)) || null;
+            let usb = videoInputs.find(d => isUsbCamera(d)) || null;
+
+            // If only one device is connected:
             if (videoInputs.length === 1) {
-                // Exactly ONE physical video input exists on this computer:
-                // It is the Laptop built-in webcam.
-                // There is NO external USB camera connected!
-                return {
-                    laptopDevice: videoInputs[0],
-                    usbDevice: null
-                };
+                const single = videoInputs[0];
+                if (isUsbCamera(single)) {
+                    return { laptopDevice: null, usbDevice: single };
+                } else if (isLaptopCamera(single)) {
+                    return { laptopDevice: single, usbDevice: null };
+                } else {
+                    return { laptopDevice: single, usbDevice: null };
+                }
             }
 
-            // Multiple video devices attached!
-            const isLaptopLabel = (label) => /integrated|internal|facetime|built-in|front|user|laptop|hd webcam/i.test(label || '');
-            const isUsbLabel = (label) => /usb|external|uvc|plug|camlink|capture|c920|c270|logi/i.test(label || '');
-
-            let laptop = videoInputs.find(d => isLaptopLabel(d.label));
-            let usb = videoInputs.find(d => isUsbLabel(d.label));
-
-            if (!laptop && !usb) {
-                laptop = videoInputs[0];
-                usb = videoInputs[1];
+            // If multiple devices are connected:
+            if (!laptop && usb) {
+                laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
             } else if (laptop && !usb) {
                 usb = videoInputs.find(d => d.deviceId !== laptop.deviceId) || null;
-            } else if (!laptop && usb) {
-                laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
+            } else if (!laptop && !usb && videoInputs.length >= 2) {
+                laptop = videoInputs[0];
+                usb = videoInputs[1];
             }
 
             // STRICT SAFETY INVARIANT: laptop and usb MUST NEVER be the same device!
@@ -112,6 +127,24 @@
             this.listeners = new Set();
         }
 
+        hasLiveTrack() {
+            if (!this.stream) return false;
+            const tracks = this.stream.getVideoTracks();
+            if (!tracks || tracks.length === 0) return false;
+            return tracks.some(t => t.readyState === 'live' && t.enabled);
+        }
+
+        handleDisconnected() {
+            console.warn(`[DeviceVideoStreamService:${this.deviceType}] Hardware disconnected or track ended`);
+            this.stop();
+            this.error = `${this.deviceName} disconnected`;
+            if (window.OrionCameraManager) {
+                const id = (this.deviceType === 'usb') ? 12 : 11;
+                window.OrionCameraManager.setSignal(id, false);
+            }
+            this.notify();
+        }
+
         subscribe(cb) {
             this.listeners.add(cb);
             cb({ isActive: this.isActive, error: this.error, deviceName: this.deviceName });
@@ -126,7 +159,7 @@
         }
 
         async start() {
-            if (this.isActive && this.video && this.video.readyState >= 2) return true;
+            if (this.isActive && this.video && this.video.readyState >= 2 && this.hasLiveTrack()) return true;
             if (this.isStarting) return false;
             this.isStarting = true;
             this.error = null;
@@ -168,8 +201,14 @@
                 this.deviceId = targetDevice.deviceId;
 
                 const track = stream.getVideoTracks()[0];
-                if (track && track.label) {
-                    this.deviceName = track.label;
+                if (track) {
+                    if (track.label) this.deviceName = track.label;
+                    const onTrackEnded = () => {
+                        console.warn(`[DeviceVideoStreamService:${this.deviceType}] Video track ended (disconnected)`);
+                        this.handleDisconnected();
+                    };
+                    track.onended = onTrackEnded;
+                    track.addEventListener('ended', onTrackEnded);
                 } else if (targetDevice.label) {
                     this.deviceName = targetDevice.label;
                 }
@@ -197,6 +236,7 @@
                 this.video = video;
                 this.isActive = true;
                 this.isStarting = false;
+                this.error = null;
                 this.notify();
                 return true;
             } catch (err) {
@@ -254,13 +294,34 @@
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
         navigator.mediaDevices.addEventListener('devicechange', async () => {
             console.log('[Camera Hardware] USB/Webcam device change detected!');
-            if (!usbCamService.isActive && window.OrionCameraManager) {
-                const ok = await usbCamService.start();
-                window.OrionCameraManager.setSignal(12, ok);
+            const { laptopDevice, usbDevice } = await enumerateCameraDevices();
+
+            // USB Camera
+            if (usbDevice) {
+                if (!usbCamService.isActive || !usbCamService.hasLiveTrack()) {
+                    console.log('[Camera Hardware] USB Camera attached. Starting stream...');
+                    const ok = await usbCamService.start();
+                    if (window.OrionCameraManager) window.OrionCameraManager.setSignal(12, ok);
+                }
+            } else {
+                if (usbCamService.isActive) {
+                    console.warn('[Camera Hardware] USB Camera detached.');
+                    usbCamService.handleDisconnected();
+                }
             }
-            if (!laptopWebcamService.isActive && window.OrionCameraManager) {
-                const ok = await laptopWebcamService.start();
-                window.OrionCameraManager.setSignal(11, ok);
+
+            // Laptop Webcam
+            if (laptopDevice) {
+                if (!laptopWebcamService.isActive || !laptopWebcamService.hasLiveTrack()) {
+                    console.log('[Camera Hardware] Laptop Webcam attached. Starting stream...');
+                    const ok = await laptopWebcamService.start();
+                    if (window.OrionCameraManager) window.OrionCameraManager.setSignal(11, ok);
+                }
+            } else {
+                if (laptopWebcamService.isActive) {
+                    console.warn('[Camera Hardware] Laptop Webcam detached.');
+                    laptopWebcamService.handleDisconnected();
+                }
             }
         });
     }
@@ -303,6 +364,16 @@
 
         _startHeartbeat() {
             setInterval(async () => {
+                // Heartbeat liveness checks for hardware streams
+                if (laptopWebcamService.isActive && !laptopWebcamService.hasLiveTrack()) {
+                    console.warn('[CameraManager] Laptop webcam track ended in heartbeat check');
+                    laptopWebcamService.handleDisconnected();
+                }
+                if (usbCamService.isActive && !usbCamService.hasLiveTrack()) {
+                    console.warn('[CameraManager] USB camera track ended in heartbeat check');
+                    usbCamService.handleDisconnected();
+                }
+
                 for (const cam of CAMERAS) {
                     const id = cam.id;
                     const hasSig = this.hasSignal(id);
@@ -321,17 +392,11 @@
                     this.countdowns.set(id, cur);
                     cam._countdownSec = cur;
 
-                    // Update DOM labels across mosaic and single views
-                    const tileRec = document.getElementById(`tile-reconnect-${id}`);
-                    if (tileRec) {
-                        tileRec.textContent = `Attempting reconnect in ${cur}s...`;
-                    }
-                    if (this.activeCamId === id) {
-                        const singleRec = document.getElementById('single-reconnect-msg');
-                        if (singleRec) {
-                            singleRec.textContent = `Attempting reconnect in ${cur}s...`;
-                        }
-                    }
+                    // Update DOM labels across all views (single view, deck tiles, etc.)
+                    const recEls = document.querySelectorAll(`[data-reconnect-cam="${id}"], #tile-reconnect-${id}, #single-reconnect-${id}`);
+                    recEls.forEach(el => {
+                        el.textContent = `Attempting reconnect in ${cur}s...`;
+                    });
 
                     // On countdown expiration, actively restart connection attempts
                     if (cur === 0) {
@@ -383,10 +448,10 @@
         hasSignal(camId) {
             const id = parseInt(camId, 10);
             if (id === 11) {
-                return !!(laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2);
+                return !!(laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2 && laptopWebcamService.hasLiveTrack());
             }
             if (id === 12) {
-                return !!(usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2);
+                return !!(usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2 && usbCamService.hasLiveTrack());
             }
             const vid = this.streamVideos.get(id);
             if (vid && vid.readyState >= 2) return true;
@@ -905,9 +970,6 @@
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 6px;">
-                    <button id="single-btn-snapshot" style="background: #1e3a8a; border: 1px solid #2563eb; color: #bfdbfe; font-family: monospace; font-size: 8px; font-weight: 800; padding: 2px 6px; border-radius: 0px !important; cursor: pointer; text-transform: uppercase;" title="Capture snapshot of this camera feed">
-                        📸 SNAPSHOT
-                    </button>
                     <span id="single-hud-time" style="font-family: monospace; font-size: 9px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px;">UTC: --:--:--.---</span>
                 </div>
             </div>
@@ -917,20 +979,20 @@
                 <canvas id="single-cam-canvas" style="width: 100%; height: 100%; object-fit: contain; display: block;"></canvas>
                 
                 <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
-                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 10; pointer-events: none; user-select: none;">
-                    <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 68px; height: 68px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
-                    <div style="font-family: monospace, sans-serif; font-size: 15px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 18px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
+                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 20; pointer-events: none; user-select: none;">
+                    <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 58px; height: 58px; object-fit: contain; margin-bottom: 8px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
+                    <div style="font-family: monospace, sans-serif; font-size: 13px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 4px 14px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
                         NO SIGNAL
                     </div>
-                    <div id="single-reconnect-msg" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
+                    <div id="single-reconnect-${cam.id}" data-reconnect-cam="${cam.id}" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
                         Attempting reconnect in ${cam._countdownSec ?? 5}s...
                     </div>
                 </div>
 
-                <div style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15;">
+                <div id="single-role-badge" style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15; display: ${initialSig ? 'block' : 'none'};">
                     ROLE: ${cam.role.toUpperCase()}
                 </div>
-                <div id="single-osd-time" style="position: absolute; bottom: 8px; right: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #38bdf8; z-index: 15;">
+                <div id="single-osd-time" style="position: absolute; bottom: 8px; right: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #38bdf8; z-index: 15; display: ${initialSig ? 'block' : 'none'};">
                     UTC: --:--:--.---
                 </div>
             </div>
@@ -941,22 +1003,17 @@
         canvas.width = 1280;
         canvas.height = 720;
 
-        // Bind Single Camera Snapshot Button
-        const btnSnap = container.querySelector('#single-btn-snapshot');
-        if (btnSnap) {
-            btnSnap.addEventListener('click', (e) => {
-                e.stopPropagation();
-                captureCameraSnapshot(cam, canvas, openmct);
-            });
-        }
-
         const unsubSignal = cameraManager.subscribe((state) => {
             const hasSig = state.signals.get(cam.id) ?? false;
             const noSigOverlay = container.querySelector('#single-no-signal');
             const hudDot = container.querySelector('#single-hud-dot');
             const hudStatus = container.querySelector('#single-hud-status');
             const hudFps = container.querySelector('#single-hud-fps');
+            const roleEl = container.querySelector('#single-role-badge');
+            const osdEl = container.querySelector('#single-osd-time');
             if (noSigOverlay) noSigOverlay.style.display = hasSig ? 'none' : 'flex';
+            if (roleEl) roleEl.style.display = hasSig ? 'block' : 'none';
+            if (osdEl) osdEl.style.display = hasSig ? 'block' : 'none';
             if (hudDot) hudDot.style.background = hasSig ? '#22c55e' : '#ef4444';
             if (hudStatus) {
                 hudStatus.textContent = hasSig ? 'LIVE' : 'NO SIGNAL';
@@ -1037,9 +1094,6 @@
                         <span id="deck-hud-dot" style="display: inline-block; width: 6px; height: 6px; border-radius: 0px; background: #22c55e;"></span>
                         <span id="deck-hud-telemetry">H.264 | 12.4 Mbps | 30 FPS</span>
                     </div>
-                    <button id="btn-deck-snapshot" style="background: #1e3a8a; color: #bfdbfe; border: 1px solid #2563eb; padding: 2px 6px; font-size: 8px; font-weight: 800; border-radius: 0px; cursor: pointer; text-transform: uppercase;">
-                        📸 SNAPSHOT
-                    </button>
                 </div>
             </div>
 
@@ -1049,7 +1103,6 @@
 
         const viewport = container.querySelector('#deck-viewport');
         const btnModes = container.querySelectorAll('.btn-deck-mode');
-        const btnSnapshot = container.querySelector('#btn-deck-snapshot');
         const hudTelem = container.querySelector('#deck-hud-telemetry');
         const hudDot = container.querySelector('#deck-hud-dot');
 
@@ -1261,19 +1314,6 @@
             b.addEventListener('click', () => {
                 cameraManager.setLayoutMode(b.dataset.mode);
             });
-        });
-
-        // Global Snapshot Button in Camera Deck
-        btnSnapshot.addEventListener('click', () => {
-            const cam = cameraManager.getActiveCamera();
-            let target = activeTileCanvases.get(cam.id);
-            if (!target && activeTileCanvases.size > 0) {
-                target = activeTileCanvases.values().next().value;
-            }
-            const cvs = (target && target.canvas) ? target.canvas : container.querySelector('canvas');
-            if (cvs) {
-                captureCameraSnapshot(cam, cvs, openmct);
-            }
         });
 
         // Subscribe to state
