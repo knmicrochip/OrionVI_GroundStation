@@ -1,5 +1,5 @@
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, session } = require('electron');
 const path = require('path');
 const { startServer } = require('./example-server/server');
 
@@ -21,6 +21,22 @@ async function launchServer() {
 async function createWindow() {
     const { server, port } = await launchServer();
     serverInstance = server;
+
+    // Grant media permissions (laptop camera / webcam) in Electron
+    if (session && session.defaultSession) {
+        session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+            if (permission === 'media') {
+                return callback(true);
+            }
+            callback(false);
+        });
+        session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+            if (permission === 'media') {
+                return true;
+            }
+            return false;
+        });
+    }
 
     mainWindow = new BrowserWindow({
         width: 1280,
@@ -1305,6 +1321,238 @@ async function createWindow() {
                     await new Promise(r => setTimeout(r, 600));
                 } catch (e) {
                     console.error('[Test Timeline & Logs Error]', e);
+                }
+                setTimeout(() => {
+                    mainWindow.close();
+                }, 1000);
+            } else if (testMode === 'test_snapshot') {
+                try {
+                    const fs = require('fs');
+                    const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
+                    await new Promise(r => setTimeout(r, 4500));
+
+                    console.log('[Test Snapshot] Checking canvas taint and snapshot capture...');
+                    const canvasTaintCheck = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const canvases = Array.from(document.querySelectorAll('canvas'));
+                            const results = canvases.map((c, i) => {
+                                let tainted = false;
+                                let error = null;
+                                try {
+                                    c.toDataURL();
+                                } catch (e) {
+                                    tainted = true;
+                                    error = e.message;
+                                }
+                                return {
+                                    index: i,
+                                    width: c.width,
+                                    height: c.height,
+                                    className: c.className,
+                                    tainted,
+                                    error
+                                };
+                            });
+                            return { count: canvases.length, results };
+                        })()
+                    `);
+                    console.log('[Test Canvas Taint Check]', JSON.stringify(canvasTaintCheck));
+
+                    // Test snapshot on an enlarged camera feed
+                    console.log('[Test Snapshot] Navigating to cam_mast_rgb to test enlarged camera snapshot...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:cam_mast_rgb';
+                    `);
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    // Verify that no test-mode toggle buttons exist in the DOM
+                    const testButtonCheck = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const btnWebcam = document.querySelector('#single-btn-webcam');
+                            const btnEnableWebcam = document.querySelector('#single-enable-webcam-btn');
+                            const tileWebcamBtns = document.querySelectorAll('.btn-tile-webcam');
+                            const singleSnapBtn = document.querySelector('#single-btn-snapshot');
+                            const noSigOverlay = document.querySelector('#single-no-signal');
+                            const reconnectMsg = document.querySelector('#single-reconnect-msg');
+
+                            return {
+                                hasSingleWebcamBtn: Boolean(btnWebcam),
+                                hasSingleEnableWebcamBtn: Boolean(btnEnableWebcam),
+                                tileWebcamBtnCount: tileWebcamBtns.length,
+                                hasSingleSnapBtn: Boolean(singleSnapBtn),
+                                noSigOverlayVisible: noSigOverlay ? noSigOverlay.style.display !== 'none' : false,
+                                reconnectText: reconnectMsg ? reconnectMsg.textContent.trim() : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Buttons Check]', JSON.stringify(testButtonCheck));
+
+                    // Test dedicated enlarged snapshot button
+                    console.log('[Test Snapshot] Clicking dedicated enlarged snapshot button (#single-btn-snapshot)...');
+                    const singleSnapClick = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const btn = document.querySelector('#single-btn-snapshot');
+                            if (btn) {
+                                btn.click();
+                                return { clicked: true };
+                            }
+                            return { clicked: false };
+                        })()
+                    `);
+                    console.log('[Test Single Snap Click]', JSON.stringify(singleSnapClick));
+                    await new Promise(r => setTimeout(r, 1500));
+
+                    // Also test OpenMCT native snapshot menu button
+                    console.log('[Test Snapshot] Taking snapshot via OpenMCT native snapshot menu...');
+                    const camSnapResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            const snapBtn = document.querySelector('.c-notebook-snapshot-menubutton button, button.icon-camera');
+                            let menuOpened = false;
+                            if (snapBtn) {
+                                snapBtn.click();
+                                await new Promise(r => setTimeout(r, 600));
+                                menuOpened = Boolean(document.querySelector('.c-menu, [role="menu"]'));
+                            }
+                            const menuItem = Array.from(document.querySelectorAll('li[role="menuitem"], .c-menu li')).find(li => li.textContent && li.textContent.includes('Snapshots'));
+                            let clickedMenuItem = false;
+                            if (menuItem) {
+                                menuItem.click();
+                                clickedMenuItem = true;
+                            }
+                            return { foundSnapBtn: Boolean(snapBtn), menuOpened, clickedMenuItem };
+                        })()
+                    `);
+                    console.log('[Test Cam Snapshot Result]', JSON.stringify(camSnapResult));
+                    await new Promise(r => setTimeout(r, 4000));
+
+                    // Check if error dialog appeared or what is in storage
+                    const storageCheck = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const errDialog = document.querySelector('.c-dialog--error, [class*="error"]');
+                            const storage = localStorage.getItem('notebook-snapshot-storage');
+                            let snaps = [];
+                            try { snaps = JSON.parse(storage || '[]'); } catch (_) {}
+                            const rawUrl = snaps.length > 0 && snaps[0].notebookImageDomainObject && snaps[0].notebookImageDomainObject.configuration ? snaps[0].notebookImageDomainObject.configuration.fullSizeImageURL : null;
+                            return {
+                                errorDialogFound: Boolean(errDialog),
+                                errorDialogText: errDialog ? errDialog.textContent.trim() : null,
+                                snapsCount: snaps.length,
+                                rawUrl: rawUrl,
+                                firstSnapDetails: snaps.length > 0 ? {
+                                    hasFullSizeURL: Boolean(rawUrl),
+                                    fullSizeLength: (rawUrl || '').length,
+                                    urlPrefix: (rawUrl || '').substring(0, 50)
+                                } : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Storage After Snapshot]', JSON.stringify(storageCheck.firstSnapDetails));
+                    if (storageCheck.rawUrl && storageCheck.rawUrl.startsWith('data:image/png;base64,')) {
+                        const base64Data = storageCheck.rawUrl.replace(/^data:image\/png;base64,/, '');
+                        fs.writeFileSync(path.join(artifactDir, 'screenshot-real-captured-snapshot.png'), Buffer.from(base64Data, 'base64'));
+                        console.log('[Test Snapshot] Saved screenshot-real-captured-snapshot.png from actual snapshot export!');
+                    }
+
+                    // Now open the Notebook Snapshots drawer by clicking the top indicator (or SHOW button)
+                    console.log('[Test Snapshot] Opening snapshot drawer...');
+                    const openDrawer = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const showBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && b.textContent.trim() === 'Show') || document.querySelector('.c-indicator.icon-camera button');
+                            if (showBtn) {
+                                showBtn.click();
+                                return { clicked: true, text: showBtn.textContent.trim() };
+                            }
+                            return { clicked: false };
+                        })()
+                    `);
+                    console.log('[Test Open Drawer]', JSON.stringify(openDrawer));
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // Now check the drawer content and click on the snapshot thumbnail to trigger openSnapshotOverlay()
+                    console.log('[Test Snapshot] Clicking snapshot thumbnail to open in overlay...');
+                    const openOverlayResult = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const thumb = document.querySelector('.c-ne__embed__snap-thumb, .c-snapshot img, .c-ne__embed img, [class*="snap-thumb"]');
+                            const snaps = document.querySelectorAll('.c-ne__embed, .c-snapshot');
+                            if (thumb) {
+                                thumb.click();
+                                return { clickedThumb: true, snapsCount: snaps.length };
+                            }
+                            return { clickedThumb: false, snapsCount: snaps.length };
+                        })()
+                    `);
+                    console.log('[Test Open Snapshot Overlay]', JSON.stringify(openOverlayResult));
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    // Capture screenshot of the snapshot in open mode (the overlay)
+                    const openSnapshotImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-snapshot-open-mode.png'), openSnapshotImg.toPNG());
+                    console.log('[Test Snapshot] Saved screenshot-snapshot-open-mode.png');
+
+                    // Inspect the overlay DOM and CSS
+                    const overlayDiag = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const ov = document.querySelector('.c-overlay, .l-overlay-wrapper');
+                            const outer = document.querySelector('.c-overlay__outer');
+                            const contents = document.querySelector('.c-overlay__contents');
+                            const snapItem = document.querySelector('.c-notebook-snapshot');
+                            const snapImg = document.querySelector('.c-notebook-snapshot__image');
+                            const closeBtn = document.querySelector('.c-overlay__close-button');
+                            const doneBtn = Array.from(document.querySelectorAll('.c-button, button')).find(b => b.textContent && b.textContent.trim() === 'Done');
+
+                            return {
+                                overlayExists: Boolean(ov),
+                                overlayClass: ov ? ov.className : null,
+                                outerRect: outer ? outer.getBoundingClientRect() : null,
+                                contentsRect: contents ? contents.getBoundingClientRect() : null,
+                                snapItemRect: snapItem ? snapItem.getBoundingClientRect() : null,
+                                snapImgRect: snapImg ? snapImg.getBoundingClientRect() : null,
+                                snapImgStyle: snapImg ? snapImg.getAttribute('style') : null,
+                                closeBtnRect: closeBtn ? closeBtn.getBoundingClientRect() : null,
+                                doneBtnRect: doneBtn ? doneBtn.getBoundingClientRect() : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Snapshot Overlay Diagnostic]', JSON.stringify(overlayDiag));
+
+                    // Test popout window snapshot export
+                    console.log('[Test Snapshot] Testing popout window (camera-view.html) snapshot export...');
+                    const popout = new BrowserWindow({
+                        width: 840,
+                        height: 540,
+                        show: false,
+                        webPreferences: {
+                            nodeIntegration: false,
+                            contextIsolation: true
+                        }
+                    });
+                    await popout.loadURL(`http://localhost:${port}/camera-view.html?cam=12`);
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    const popoutSnapResult = await popout.webContents.executeJavaScript(`
+                        (() => {
+                            const snapBtn = document.getElementById('btn-snapshot');
+                            const btnWebcam = document.getElementById('btn-toggle-webcam');
+                            const btnOverlayWebcam = document.getElementById('btn-enable-webcam-overlay');
+                            if (snapBtn) {
+                                snapBtn.click();
+                            }
+                            const storage = localStorage.getItem('notebook-snapshot-storage');
+                            let count = 0;
+                            try { count = JSON.parse(storage || '[]').length; } catch (_) {}
+                            return {
+                                hasSnapBtn: Boolean(snapBtn),
+                                hasBtnWebcam: Boolean(btnWebcam),
+                                hasBtnOverlayWebcam: Boolean(btnOverlayWebcam),
+                                storageCount: count
+                            };
+                        })()
+                    `);
+                    console.log('[Test Popout Snap Result]', JSON.stringify(popoutSnapResult));
+                    popout.close();
+
+                } catch (err) {
+                    console.error('[Test Snapshot Error]', err);
                 }
                 setTimeout(() => {
                     mainWindow.close();

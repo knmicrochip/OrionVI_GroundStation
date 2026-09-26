@@ -27,15 +27,191 @@
         { id: 7, key: 'cam_arm_elbow', name: 'Manipulator Elbow Overview Cam', short: 'ARM ELBOW', resolution: '1280x720', role: 'Kinematics / Collision Guard', color: '#ea580c' },
         { id: 8, key: 'cam_science_macro', name: 'Science Macro Probing Cam', short: 'SCI MACRO', resolution: '1920x1080', role: 'Regolith / Drill Core', color: '#eab308' },
         { id: 9, key: 'cam_science_chamber', alias: 'cam_science', name: 'Science Internal Carousel Cam', short: 'SCI CHAMBER', resolution: '1280x720', role: 'Sample Carousel / Reagents', color: '#a855f7' },
-        { id: 10, key: 'cam_deck_pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360', color: '#ec4899' }
+        { id: 10, key: 'cam_deck_pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360', color: '#ec4899' },
+        { id: 11, key: 'cam_laptop_test', alias: 'cam_test', name: 'Laptop Webcam (Test Camera)', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', color: '#10b981', isTestCam: true },
+        { id: 12, key: 'cam_usb_test', alias: 'cam_usb', name: 'USB Camera (Test Cam)', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', color: '#06b6d4', isTestCam: true }
     ];
+
+    // =========================================================================
+    // WEBCAM & USB CAMERA HARDWARE STREAM SERVICE (HTML5 getUserMedia Singleton)
+    // =========================================================================
+    class DeviceVideoStreamService {
+        constructor(deviceType = 'laptop') {
+            this.deviceType = deviceType; // 'laptop' or 'usb'
+            this.stream = null;
+            this.video = null;
+            this.isActive = false;
+            this.isStarting = false;
+            this.error = null;
+            this.deviceName = deviceType === 'usb' ? 'USB Camera' : 'Laptop Webcam';
+            this.listeners = new Set();
+        }
+
+        subscribe(cb) {
+            this.listeners.add(cb);
+            cb({ isActive: this.isActive, error: this.error, deviceName: this.deviceName });
+            return () => this.listeners.delete(cb);
+        }
+
+        notify() {
+            const state = { isActive: this.isActive, error: this.error, deviceName: this.deviceName };
+            this.listeners.forEach(cb => {
+                try { cb(state); } catch (_) {}
+            });
+        }
+
+        async findTargetDeviceId() {
+            if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                return null;
+            }
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoInputs = devices.filter(d => d.kind === 'videoinput');
+                if (videoInputs.length === 0) return null;
+
+                if (this.deviceType === 'usb') {
+                    // Try to find device with label having 'usb', 'external', 'uvc', or index > 0
+                    const usbDev = videoInputs.find(d => /usb|external|uvc|webcam\s+2/i.test(d.label));
+                    if (usbDev) {
+                        this.deviceName = usbDev.label || 'USB Camera';
+                        return usbDev.deviceId;
+                    }
+                    if (videoInputs.length > 1) {
+                        this.deviceName = videoInputs[1].label || 'USB Camera (Device 2)';
+                        return videoInputs[1].deviceId;
+                    }
+                    // Only 1 camera found and it's likely laptop built-in
+                    return null;
+                } else {
+                    // Laptop built-in camera
+                    const builtIn = videoInputs.find(d => /integrated|internal|facetime|built-in|front|user/i.test(d.label));
+                    if (builtIn) {
+                        this.deviceName = builtIn.label || 'Laptop Webcam';
+                        return builtIn.deviceId;
+                    }
+                    this.deviceName = videoInputs[0].label || 'Laptop Webcam';
+                    return videoInputs[0].deviceId;
+                }
+            } catch (e) {
+                console.warn(`[DeviceVideoStreamService:${this.deviceType}] Error enumerating devices:`, e);
+                return null;
+            }
+        }
+
+        async start() {
+            if (this.isActive && this.video) return true;
+            if (this.isStarting) return false;
+            this.isStarting = true;
+            this.error = null;
+
+            try {
+                if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('Webcam mediaDevices API not available in this environment');
+                }
+
+                const targetDeviceId = await this.findTargetDeviceId();
+
+                if (this.deviceType === 'usb' && !targetDeviceId) {
+                    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+                    const vCount = devices.filter(d => d.kind === 'videoinput').length;
+                    if (vCount <= 1) {
+                        throw new Error('External USB camera not detected (connect USB camera)');
+                    }
+                }
+
+                const constraints = {
+                    video: targetDeviceId
+                        ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: (this.deviceType === 'usb' ? 'environment' : 'user') },
+                    audio: false
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                this.stream = stream;
+
+                const track = stream.getVideoTracks()[0];
+                if (track && track.label) {
+                    this.deviceName = track.label;
+                }
+
+                const video = document.createElement('video');
+                video.setAttribute('playsinline', 'true');
+                video.setAttribute('autoplay', 'true');
+                video.muted = true;
+                video.srcObject = stream;
+
+                await new Promise((resolve) => {
+                    let done = false;
+                    const finish = () => {
+                        if (!done) {
+                            done = true;
+                            resolve();
+                        }
+                    };
+                    video.onloadedmetadata = () => {
+                        video.play().then(finish).catch(finish);
+                    };
+                    setTimeout(finish, 1200);
+                });
+
+                this.video = video;
+                this.isActive = true;
+                this.isStarting = false;
+                this.notify();
+                return true;
+            } catch (err) {
+                console.warn(`[DeviceVideoStreamService:${this.deviceType}] Camera stream unavailable:`, err.message || err);
+                this.error = err.message || 'Camera hardware unavailable';
+                this.isActive = false;
+                this.isStarting = false;
+                this.notify();
+                return false;
+            }
+        }
+
+        stop() {
+            if (this.stream) {
+                this.stream.getTracks().forEach(t => {
+                    try { t.stop(); } catch (_) {}
+                });
+                this.stream = null;
+            }
+            if (this.video) {
+                try {
+                    this.video.pause();
+                    this.video.srcObject = null;
+                } catch (_) {}
+                this.video = null;
+            }
+            this.isActive = false;
+            this.notify();
+        }
+
+        async toggle() {
+            if (this.isActive) {
+                this.stop();
+                return false;
+            } else {
+                return await this.start();
+            }
+        }
+    }
+
+    const laptopWebcamService = new DeviceVideoStreamService('laptop');
+    const usbCamService = new DeviceVideoStreamService('usb');
+    const webcamService = laptopWebcamService; // Backward compatibility
+
+    if (typeof window !== 'undefined') {
+        window.OrionWebcamService = laptopWebcamService;
+        window.OrionUsbCamService = usbCamService;
+    }
 
     class CameraManager {
         constructor() {
             this.activeCamId = 1;
             this.layoutMode = 'grid'; // 'grid', 'hero', 'dual', 'solo'
             this.signals = new Map([
-                [1, false], // By default NO SIGNAL (awaiting hardware/telemetry)
+                [1, false], // By default NO SIGNAL (awaiting hardware/stream)
                 [2, false],
                 [3, false],
                 [4, false],
@@ -44,9 +220,80 @@
                 [7, false],
                 [8, false],
                 [9, false],
-                [10, false]
+                [10, false],
+                [11, false],
+                [12, false]
             ]);
+            this.countdowns = new Map();
+            CAMERAS.forEach(c => {
+                this.countdowns.set(c.id, 5);
+                c._countdownSec = 5;
+            });
             this.listeners = new Set();
+            this._startHeartbeat();
+
+            // Auto-detect & synchronize hardware services
+            laptopWebcamService.subscribe(active => {
+                this.setSignal(11, active);
+            });
+            usbCamService.subscribe(active => {
+                this.setSignal(12, active);
+            });
+        }
+
+        _startHeartbeat() {
+            setInterval(async () => {
+                for (const cam of CAMERAS) {
+                    const id = cam.id;
+                    const hasSig = this.hasSignal(id);
+                    if (hasSig) {
+                        this.countdowns.set(id, 5);
+                        cam._countdownSec = 5;
+                        continue;
+                    }
+
+                    let cur = this.countdowns.get(id) ?? 5;
+                    if (cur <= 0) {
+                        cur = 5;
+                    } else {
+                        cur--;
+                    }
+                    this.countdowns.set(id, cur);
+                    cam._countdownSec = cur;
+
+                    // Update DOM labels across mosaic and single views
+                    const tileRec = document.getElementById(`tile-reconnect-${id}`);
+                    if (tileRec) {
+                        tileRec.textContent = `Attempting reconnect in ${cur}s...`;
+                    }
+                    if (this.activeCamId === id) {
+                        const singleRec = document.getElementById('single-reconnect-msg');
+                        if (singleRec) {
+                            singleRec.textContent = `Attempting reconnect in ${cur}s...`;
+                        }
+                    }
+
+                    // On countdown expiration, actively restart connection attempts
+                    if (cur === 0) {
+                        this._attemptReconnect(id);
+                    }
+                }
+            }, 1000);
+        }
+
+        async _attemptReconnect(id) {
+            try {
+                if (id === 11) {
+                    const ok = await laptopWebcamService.start();
+                    if (ok) this.setSignal(11, true);
+                } else if (id === 12) {
+                    const ok = await usbCamService.start();
+                    if (ok) this.setSignal(12, true);
+                } else {
+                    const found = await this.scanForFeed(id);
+                    if (found) this.setSignal(id, true);
+                }
+            } catch (_) {}
         }
 
         subscribe(cb) {
@@ -77,8 +324,16 @@
 
         setSignal(camId, val) {
             const id = parseInt(camId, 10);
+            const changed = (this.signals.get(id) !== Boolean(val));
             this.signals.set(id, Boolean(val));
-            this.notify();
+            if (changed) {
+                if (val) {
+                    this.countdowns.set(id, 5);
+                    const cam = this.getCameraById(id);
+                    if (cam) cam._countdownSec = 5;
+                }
+                this.notify();
+            }
         }
 
         toggleSignal(camId) {
@@ -136,6 +391,34 @@
             // 1. If signal is already active / simulated
             if (this.hasSignal(id)) {
                 return true;
+            }
+
+            // If Camera 11 (Laptop Webcam)
+            if (id === 11) {
+                if (laptopWebcamService.isActive) {
+                    this.setSignal(11, true);
+                    return true;
+                }
+                const started = await laptopWebcamService.start();
+                if (started) {
+                    this.setSignal(11, true);
+                    return true;
+                }
+                return false;
+            }
+
+            // If Camera 12 (USB Cam)
+            if (id === 12) {
+                if (usbCamService.isActive) {
+                    this.setSignal(12, true);
+                    return true;
+                }
+                const started = await usbCamService.start();
+                if (started) {
+                    this.setSignal(12, true);
+                    return true;
+                }
+                return false;
             }
 
             // 2. Scan network / backend endpoint for this respective camera feed
@@ -229,8 +512,173 @@
         ctx.restore();
     }
 
+    // Aerospace HUD Overlay on top of live Camera Feed
+    function drawWebcamHudOverlay(ctx, cam, now, width, height, service = laptopWebcamService, label = 'LIVE LAPTOP WEBCAM', color = '#10b981', textColor = '#6ee7b7') {
+        ctx.save();
+        const midX = width * 0.5;
+        const midY = height * 0.5;
+
+        // Subtle Reticle Crosshair in center
+        ctx.strokeStyle = color === '#10b981' ? 'rgba(16, 185, 129, 0.45)' : 'rgba(6, 182, 212, 0.45)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(midX - 24, midY); ctx.lineTo(midX - 6, midY);
+        ctx.moveTo(midX + 6, midY); ctx.lineTo(midX + 24, midY);
+        ctx.moveTo(midX, midY - 24); ctx.lineTo(midX, midY - 6);
+        ctx.moveTo(midX, midY + 6); ctx.lineTo(midX, midY + 24);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(midX, midY, 14, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Top live pill badge
+        const badgeW = 200;
+        const badgeH = 20;
+        ctx.fillStyle = color === '#10b981' ? 'rgba(6, 78, 59, 0.85)' : 'rgba(8, 51, 68, 0.85)';
+        ctx.fillRect(midX - badgeW / 2, 8, badgeW, badgeH);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(midX - badgeW / 2, 8, badgeW, badgeH);
+
+        ctx.fillStyle = textColor;
+        ctx.font = 'bold 9.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`● ${label}`, midX, 18);
+
+        // Bottom left pill: device info
+        const devW = 250;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(8, height - 26, devW, 18);
+        ctx.strokeStyle = '#334155';
+        ctx.strokeRect(8, height - 26, devW, 18);
+
+        const vW = (service && service.video) ? service.video.videoWidth : 1280;
+        const vH = (service && service.video) ? service.video.videoHeight : 720;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = '8.5px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`CAM ${cam.id}: ${cam.short} | ${vW}x${vH} @ 30FPS`, 14, height - 17);
+
+        // Bottom right: UTC Timestamp
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`UTC: ${new Date(now).toISOString().substring(11, 23)}`, width - 8, height - 8);
+
+        ctx.restore();
+    }
+
+    // Capture Real Camera Snapshot to OpenMCT Notebook Snapshots and Trigger File Download
+    function captureCameraSnapshot(cam, targetCanvas, openmct) {
+        if (!targetCanvas) return;
+        let dataUrl;
+        try {
+            dataUrl = targetCanvas.toDataURL('image/png');
+        } catch (e) {
+            console.warn('[Snapshot Capture] Cannot export canvas data URL:', e);
+            return;
+        }
+
+        // Generate a 60x34 thumbnail for OpenMCT notebook embed
+        const thumbCvs = document.createElement('canvas');
+        thumbCvs.width = 60;
+        thumbCvs.height = 34;
+        const tCtx = thumbCvs.getContext('2d');
+        tCtx.drawImage(targetCanvas, 0, 0, 60, 34);
+        let thumbUrl;
+        try {
+            thumbUrl = thumbCvs.toDataURL('image/png');
+        } catch (_) {
+            thumbUrl = dataUrl;
+        }
+
+        const uuid = 'snap-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+        const embedId = 'embed-' + Date.now();
+        const now = Date.now();
+
+        const snapItem = {
+            notebookImageDomainObject: {
+                name: `${cam.name} Snapshot`,
+                type: 'notebookSnapshotImage',
+                identifier: { key: uuid, namespace: '' },
+                configuration: { fullSizeImageURL: dataUrl }
+            },
+            embedObject: {
+                bounds: (openmct && openmct.time) ? openmct.time.bounds() : { start: now - 300000, end: now },
+                createdOn: now,
+                createdBy: null,
+                cssClass: 'icon-imagery',
+                domainObject: {
+                    identifier: { namespace: 'orion.taxonomy', key: cam.key || `cam_${cam.id}` },
+                    name: cam.name,
+                    type: 'orion.camera_feed'
+                },
+                historicLink: window.location.hash || `#/browse/orion.taxonomy:${cam.key || 'cam_mast_rgb'}`,
+                id: embedId,
+                name: cam.name,
+                snapshot: {
+                    fullSizeImageObjectIdentifier: { key: uuid, namespace: '' },
+                    thumbnailImage: { src: thumbUrl }
+                },
+                type: 'orion.camera_feed'
+            }
+        };
+
+        let list = [];
+        try {
+            list = JSON.parse(localStorage.getItem('notebook-snapshot-storage') || '[]');
+        } catch (_) {}
+        list.unshift(snapItem);
+        if (list.length > 10) list.pop();
+        try {
+            localStorage.setItem('notebook-snapshot-storage', JSON.stringify(list));
+        } catch (e) {
+            console.warn('[Snapshot Storage] LocalStorage write error:', e);
+        }
+
+        // Trigger immediate PNG download as user-facing file
+        const a = document.createElement('a');
+        a.download = `snapshot_${cam.short.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
+        a.href = dataUrl;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+
+        if (openmct && openmct.notifications) {
+            openmct.notifications.info(`Camera Snapshot Captured to Notebook: [${cam.short}]`);
+        }
+    }
+
     // Procedural Scene Renderer for Rover Camera Streams
     function drawCameraScene(ctx, cam, now, width, height) {
+        // 1. Camera 11: Laptop Webcam
+        if (cam.id === 11) {
+            if (laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2) {
+                ctx.save();
+                ctx.drawImage(laptopWebcamService.video, 0, 0, width, height);
+                drawWebcamHudOverlay(ctx, cam, now, width, height, laptopWebcamService, 'LIVE LAPTOP WEBCAM', '#10b981', '#6ee7b7');
+                ctx.restore();
+                return;
+            }
+            drawNoSignalScene(ctx, cam, now, width, height);
+            return;
+        }
+
+        // 2. Camera 12: USB Camera (Test Cam)
+        if (cam.id === 12) {
+            if (usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2) {
+                ctx.save();
+                ctx.drawImage(usbCamService.video, 0, 0, width, height);
+                drawWebcamHudOverlay(ctx, cam, now, width, height, usbCamService, 'LIVE USB CAMERA', '#06b6d4', '#67e8f9');
+                ctx.restore();
+                return;
+            }
+            drawNoSignalScene(ctx, cam, now, width, height);
+            return;
+        }
+
         // If camera currently has no signal, render center Orion Logo and red NO SIGNAL
         if (!cameraManager.hasSignal(cam.id)) {
             drawNoSignalScene(ctx, cam, now, width, height);
@@ -546,6 +994,9 @@
                 </div>
 
                 <div style="display: flex; align-items: center; gap: 6px;">
+                    <button id="single-btn-snapshot" style="background: #1e3a8a; border: 1px solid #2563eb; color: #bfdbfe; font-family: monospace; font-size: 8px; font-weight: 800; padding: 2px 6px; border-radius: 0px !important; cursor: pointer; text-transform: uppercase;" title="Capture snapshot of this camera feed">
+                        📸 SNAPSHOT
+                    </button>
                     <span id="single-hud-time" style="font-family: monospace; font-size: 9px; font-weight: 700; color: #38bdf8; letter-spacing: 0.5px;">UTC: --:--:--.---</span>
                 </div>
             </div>
@@ -561,7 +1012,7 @@
                         NO SIGNAL
                     </div>
                     <div id="single-reconnect-msg" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
-                        Attempting reconnect in 5s...
+                        Attempting reconnect in ${cam._countdownSec ?? 5}s...
                     </div>
                 </div>
 
@@ -583,42 +1034,14 @@
             cameraManager.toggleSignal(cam.id);
         });
 
-        // Reconnect countdown and feed scanner
-        let countdownSec = 5;
-        cam._countdownSec = 5;
-        const reconnectMsg = container.querySelector('#single-reconnect-msg');
-
-        const countdownInterval = setInterval(async () => {
-            if (cameraManager.hasSignal(cam.id)) {
-                countdownSec = 5;
-                cam._countdownSec = 5;
-                return;
-            }
-
-            if (countdownSec <= 0) {
-                countdownSec = 5;
-            } else {
-                countdownSec--;
-            }
-
-            cam._countdownSec = countdownSec;
-
-            if (reconnectMsg) {
-                reconnectMsg.textContent = `Attempting reconnect in ${countdownSec}s...`;
-            }
-
-            // At 0 app checks for signal once more from respective camera
-            if (countdownSec === 0) {
-                try {
-                    const feedFound = await cameraManager.scanForFeed(cam.id);
-                    if (feedFound) {
-                        cameraManager.setSignal(cam.id, true);
-                        countdownSec = 5;
-                        cam._countdownSec = 5;
-                    }
-                } catch (_) {}
-            }
-        }, 1000);
+        // Bind Single Camera Snapshot Button
+        const btnSnap = container.querySelector('#single-btn-snapshot');
+        if (btnSnap) {
+            btnSnap.addEventListener('click', (e) => {
+                e.stopPropagation();
+                captureCameraSnapshot(cam, canvas, openmct);
+            });
+        }
 
         const unsubSignal = cameraManager.subscribe((state) => {
             const hasSig = state.signals.get(cam.id) ?? false;
@@ -638,6 +1061,17 @@
             }
         });
 
+        // Auto-start hardware if Camera 11 or 12
+        if (cam.id === 11) {
+            laptopWebcamService.start().then(ok => {
+                if (ok) cameraManager.setSignal(11, true);
+            }).catch(() => {});
+        } else if (cam.id === 12) {
+            usbCamService.start().then(ok => {
+                if (ok) cameraManager.setSignal(12, true);
+            }).catch(() => {});
+        }
+
         let animId = null;
         const hudTime = container.querySelector('#single-hud-time');
         const osdTime = container.querySelector('#single-osd-time');
@@ -653,7 +1087,6 @@
         animId = requestAnimationFrame(renderLoop);
 
         container._cleanup = () => {
-            clearInterval(countdownInterval);
             unsubSignal();
             if (animId) cancelAnimationFrame(animId);
         };
@@ -762,7 +1195,7 @@
                             NO SIGNAL
                         </div>
                         <div id="tile-reconnect-${cam.id}" style="font-family: monospace, sans-serif; font-size: ${isHero ? '10px' : '8px'}; font-weight: 700; color: #94a3b8; margin-top: 5px; letter-spacing: 0.5px; text-transform: uppercase;">
-                            Attempting reconnect in 5s...
+                            Attempting reconnect in ${cam._countdownSec ?? 5}s...
                         </div>
                     </div>
                 </div>
@@ -923,11 +1356,16 @@
             });
         });
 
-        // Global Snapshot Button
+        // Global Snapshot Button in Camera Deck
         btnSnapshot.addEventListener('click', () => {
             const cam = cameraManager.getActiveCamera();
-            if (openmct && openmct.notifications) {
-                openmct.notifications.info(`Camera Snapshot Captured to Notebook: [${cam.short}]`);
+            let target = activeTileCanvases.get(cam.id);
+            if (!target && activeTileCanvases.size > 0) {
+                target = activeTileCanvases.values().next().value;
+            }
+            const cvs = (target && target.canvas) ? target.canvas : container.querySelector('canvas');
+            if (cvs) {
+                captureCameraSnapshot(cam, cvs, openmct);
             }
         });
 

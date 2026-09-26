@@ -311,10 +311,93 @@
             flex: 1 1 auto !important;
             display: flex !important;
             flex-direction: column !important;
-            height: 100% !important;
+            height: auto !important;
+            max-height: calc(100% - 46px) !important;
             width: 100% !important;
             min-height: 0 !important;
             overflow: hidden !important;
+        }
+
+        /* Overlay Button Bar (Done, Cancel, Save buttons) */
+        .c-overlay__button-bar {
+            flex: 0 0 auto !important;
+            display: flex !important;
+            justify-content: flex-end !important;
+            align-items: center !important;
+            padding: 8px 12px !important;
+            background: #181818 !important;
+            border-top: 1px solid #333333 !important;
+            z-index: 10006 !important;
+            box-sizing: border-box !important;
+        }
+
+        .c-overlay__button-bar .c-button {
+            min-height: 28px !important;
+            padding: 4px 18px !important;
+            background: #2563eb !important;
+            color: #ffffff !important;
+            border: 1px solid #3b82f6 !important;
+            border-radius: 0px !important;
+            font-family: 'Consolas', 'Segoe UI Mono', monospace !important;
+            font-weight: bold !important;
+            font-size: 12px !important;
+            cursor: pointer !important;
+            letter-spacing: 0.5px !important;
+        }
+
+        .c-overlay__button-bar .c-button:hover {
+            background: #1d4ed8 !important;
+            border-color: #60a5fa !important;
+        }
+
+        /* Notebook Snapshot in Open Mode */
+        .c-notebook-snapshot {
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 0 !important;
+            flex: 1 1 auto !important;
+            overflow: hidden !important;
+            background: #141414 !important;
+        }
+
+        .c-notebook-snapshot__header {
+            flex: 0 0 auto !important;
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            padding: 6px 12px !important;
+            background: #202020 !important;
+            border-bottom: 1px solid #333333 !important;
+            min-height: 38px !important;
+        }
+
+        .c-notebook-snapshot__image {
+            flex: 1 1 auto !important;
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 250px !important;
+            background-size: contain !important;
+            background-repeat: no-repeat !important;
+            background-position: center center !important;
+            background-color: #0d0d0d !important;
+        }
+
+        #snap-annotation {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 400px !important;
+            flex: 1 1 auto !important;
+            position: relative !important;
+            display: flex !important;
+            flex-direction: column !important;
+        }
+
+        #snap-annotation .ptro-wrapper,
+        .ptro-holder {
+            width: 100% !important;
+            height: 100% !important;
         }
 
         .l-overlay-wrapper .l-preview-window,
@@ -400,6 +483,20 @@
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // Safeguard against unhandled DOMExceptions during PreviewContainer view unmount/restoration
+        const _origAppendChild = Node.prototype.appendChild;
+        Node.prototype.appendChild = function (child) {
+            try {
+                return _origAppendChild.call(this, child);
+            } catch (err) {
+                if (err && (err.name === 'NotFoundError' || err.name === 'HierarchyRequestError' || (err.message && err.message.includes('Node')))) {
+                    console.warn('[OpenMCT DOM Safeguard] Handled appendChild restoration gracefully:', err.message);
+                    return child;
+                }
+                throw err;
+            }
+        };
 
         openmct.setAssetPath('node_modules/openmct/dist');
 
@@ -596,23 +693,18 @@
                 window.location.hash = '#/browse/orion.taxonomy:modes_tab';
             }
 
-            // Global close button handler: guarantees closing any expanded view, Large View, modal or overlay
+            // Global close button handler: guarantees closing any expanded view, Large View, modal or overlay safely without double-dismissing
             document.addEventListener('click', function (event) {
-                const closeBtn = event.target.closest('.c-overlay__close-button, .icon-x, button[aria-label="Close"], .js-overlay-close');
+                const closeBtn = event.target.closest('.c-overlay .c-overlay__close-button, .l-overlay-wrapper .c-overlay__close-button, .c-overlay button[aria-label="Close"], .l-overlay-wrapper button[aria-label="Close"], .c-overlay .icon-x, .l-overlay-wrapper .icon-x, .js-overlay-close');
                 if (closeBtn) {
-                    // If Open MCT overlay API is present, dismiss topmost active overlay
-                    if (window.openmct && window.openmct.overlays) {
-                        if (typeof window.openmct.overlays.dismissLastOverlay === 'function') {
-                            window.openmct.overlays.dismissLastOverlay();
+                    setTimeout(() => {
+                        const wrappers = document.querySelectorAll('.l-overlay-wrapper');
+                        if (wrappers.length > 0 && (!window.openmct || !window.openmct.overlays || !window.openmct.overlays.activeOverlays || window.openmct.overlays.activeOverlays.length === 0)) {
+                            wrappers.forEach(w => w.remove());
                         }
-                    }
-                    // Failsafe for any remaining overlay container elements
-                    const wrappers = document.querySelectorAll('.l-overlay-wrapper');
-                    if (wrappers.length > 0 && (!window.openmct || !window.openmct.overlays || !window.openmct.overlays.activeOverlays || window.openmct.overlays.activeOverlays.length === 0)) {
-                        wrappers.forEach(w => w.remove());
-                    }
+                    }, 80);
                 }
-            }, true);
+            }, false);
         }
 
         if (document.readyState === 'loading') {

@@ -289,6 +289,8 @@
             name: 'Perception (Cameras)',
             location: 'rover',
             children: [
+                'cam_laptop_test',
+                'cam_usb_test',
                 'cam_mast_rgb',
                 'cam_mast_depth',
                 'cam_haz_fl',
@@ -306,6 +308,10 @@
                 'rover.perception.video_bitrate'
             ]
         },
+        'cam_laptop_test': { name: 'Laptop Webcam (Test Camera)', location: 'perception', type: 'orion.camera_feed' },
+        'cam_test': { name: 'Laptop Webcam (Test Camera)', location: 'perception', type: 'orion.camera_feed' },
+        'cam_usb_test': { name: 'USB Camera (Test Cam)', location: 'perception', type: 'orion.camera_feed' },
+        'cam_usb': { name: 'USB Camera (Test Cam)', location: 'perception', type: 'orion.camera_feed' },
         'cam_mast_rgb': { name: 'Mast Intel RealSense D435i RGB', location: 'perception', type: 'orion.camera_feed' },
         'cam_mast_depth': { name: 'Mast RealSense Depth Sensor', location: 'perception', type: 'orion.camera_feed' },
         'cam_haz_fl': { name: 'Front Left Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
@@ -1007,16 +1013,18 @@
                         });
                     }
 
-                    // Standalone Separate Flexible Layout for Rover Cameras (10 Feeds)
+                    // Standalone Separate Flexible Layout for Rover Cameras (12 Feeds)
                     // Native Open MCT flexible layout: each camera has its own independent frame/field
                     // with its own native Open MCT Notebook Snapshot button, larger view, and separate window popout
                     if (key === 'disp_cameras') {
                         return Promise.resolve({
                             identifier: identifier,
-                            name: 'CAMERAS (10 FEEDS)',
+                            name: 'CAMERAS (12 FEEDS)',
                             type: 'flexible-layout',
                             location: `${TAXONOMY_NAMESPACE}:displays`,
                             composition: [
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_laptop_test' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_usb_test' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_rgb' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fl' },
@@ -1032,8 +1040,26 @@
                                 rowsLayout: false,
                                 containers: [
                                     {
+                                        id: 'col_test',
+                                        size: 18,
+                                        frames: [
+                                            {
+                                                id: 'frame_laptop_test',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_laptop_test' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_usb_test',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_usb_test' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
                                         id: 'col_mast',
-                                        size: 20,
+                                        size: 18,
                                         frames: [
                                             {
                                                 id: 'frame_mast_rgb',
@@ -1046,6 +1072,7 @@
                                                 domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
                                                 size: 50,
                                                 noFrame: false
+
                                             }
                                         ]
                                     },

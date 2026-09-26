@@ -218,6 +218,8 @@
                 <option value="8">CAM 8: SCI MACRO</option>
                 <option value="9">CAM 9: SCI CHAMBER</option>
                 <option value="10">CAM 10: DECK PANO</option>
+                <option value="11">CAM 11: LAPTOP WEBCAM (TEST)</option>
+                <option value="12">CAM 12: USB CAMERA (TEST)</option>
             </select>
         </div>
 
@@ -275,13 +277,15 @@
             { id: 7, key: 'arm_elbow', alias: 'elbow', name: 'Manipulator Elbow Overview Cam', short: 'ARM ELBOW', resolution: '1280x720', role: 'Kinematics / Collision Guard' },
             { id: 8, key: 'sci_macro', alias: 'macro', name: 'Science Macro Probing Cam', short: 'SCI MACRO', resolution: '1920x1080', role: 'Regolith / Drill Core' },
             { id: 9, key: 'sci_chamber', alias: 'science', name: 'Science Internal Carousel Cam', short: 'SCI CHAMBER', resolution: '1280x720', role: 'Sample Carousel / Reagents' },
-            { id: 10, key: 'deck_pano', alias: 'pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360' }
+            { id: 10, key: 'deck_pano', alias: 'pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360' },
+            { id: 11, key: 'cam_laptop_test', alias: 'test', name: 'Laptop Webcam (Test Camera)', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', isTestCam: true },
+            { id: 12, key: 'cam_usb_test', alias: 'usb', name: 'USB Camera (Test Cam)', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', isTestCam: true }
         ];
 
         // Parse camera parameter from URL (?cam=1, ?cam=2, ?cam=mast, etc.)
         const params = new URLSearchParams(window.location.search);
         let camParam = params.get('cam') || '1';
-        let activeCam = CAMERAS.find(c => String(c.id) === camParam || c.key.toLowerCase() === camParam.toLowerCase()) || CAMERAS[0];
+        let activeCam = CAMERAS.find(c => String(c.id) === camParam || c.key.toLowerCase() === camParam.toLowerCase() || (c.alias && c.alias.toLowerCase() === camParam.toLowerCase())) || CAMERAS[0];
 
         const canvas = document.getElementById('camera-stream-canvas');
         const ctx = canvas.getContext('2d');
@@ -311,9 +315,20 @@
 
         setCamera(activeCam);
 
-        selectEl.addEventListener('change', (e) => {
+        selectEl.addEventListener('change', async (e) => {
             const chosen = CAMERAS.find(c => String(c.id) === e.target.value);
-            if (chosen) setCamera(chosen);
+            if (chosen) {
+                stopWebcam();
+                hasSignal = false;
+                reconnectCountdown = 5;
+                setCamera(chosen);
+                updateSignalUI();
+                if (chosen.id === 11 || chosen.id === 12) {
+                    await startWebcam();
+                } else {
+                    await scanFeed();
+                }
+            }
         });
 
         let showReticle = true;
@@ -324,8 +339,84 @@
         });
 
         btnSnapshot.addEventListener('click', () => {
+            const cvs = document.getElementById('camera-stream-canvas');
+            if (!cvs) return;
+            let dataUrl;
+            try {
+                dataUrl = cvs.toDataURL('image/png');
+            } catch (err) {
+                console.warn('[Snapshot] Error getting data URL:', err);
+                return;
+            }
+
+            // Create thumbnail for Notebook snapshot embed
+            const thumbCvs = document.createElement('canvas');
+            thumbCvs.width = 60;
+            thumbCvs.height = 34;
+            const tCtx = thumbCvs.getContext('2d');
+            tCtx.drawImage(cvs, 0, 0, 60, 34);
+            let thumbUrl;
+            try {
+                thumbUrl = thumbCvs.toDataURL('image/png');
+            } catch (_) {
+                thumbUrl = dataUrl;
+            }
+
+            const uuid = 'snap-' + Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+            const embedId = 'embed-' + Date.now();
+            const now = Date.now();
+
+            const snapItem = {
+                notebookImageDomainObject: {
+                    name: `${activeCam.name} Snapshot`,
+                    type: 'notebookSnapshotImage',
+                    identifier: { key: uuid, namespace: '' },
+                    configuration: { fullSizeImageURL: dataUrl }
+                },
+                embedObject: {
+                    bounds: { start: now - 300000, end: now },
+                    createdOn: now,
+                    createdBy: null,
+                    cssClass: 'icon-imagery',
+                    domainObject: {
+                        identifier: { namespace: 'orion.taxonomy', key: `cam_${activeCam.id}` },
+                        name: activeCam.name,
+                        type: 'orion.camera_feed'
+                    },
+                    historicLink: `#/browse/orion.taxonomy:cam_${activeCam.id}`,
+                    id: embedId,
+                    name: activeCam.name,
+                    snapshot: {
+                        fullSizeImageObjectIdentifier: { key: uuid, namespace: '' },
+                        thumbnailImage: { src: thumbUrl }
+                    },
+                    type: 'orion.camera_feed'
+                }
+            };
+
+            let list = [];
+            try {
+                list = JSON.parse(localStorage.getItem('notebook-snapshot-storage') || '[]');
+            } catch (_) {}
+            list.unshift(snapItem);
+            if (list.length > 10) list.pop();
+            try {
+                localStorage.setItem('notebook-snapshot-storage', JSON.stringify(list));
+            } catch (e) {
+                console.warn('[Snapshot Storage Error]', e);
+            }
+
+            // Trigger real PNG download to user's computer
+            const a = document.createElement('a');
+            a.download = `snapshot_${activeCam.short.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.png`;
+            a.href = dataUrl;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+
+            toast.textContent = `📸 SNAPSHOT SAVED TO NOTEBOOK & DOWNLOADED`;
             toast.style.display = 'block';
-            setTimeout(() => { toast.style.display = 'none'; }, 2000);
+            setTimeout(() => { toast.style.display = 'none'; }, 2500);
         });
 
         // Signal State: default NO SIGNAL when offline
@@ -356,12 +447,90 @@
             updateSignalUI();
         });
 
+        // Webcam stream service for standalone popout window
+        let webcamStream = null;
+        let webcamVideo = null;
+        let isWebcamActive = false;
+
+        async function startWebcam() {
+            if (isWebcamActive && webcamVideo) return true;
+            try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    throw new Error('getUserMedia not supported');
+                }
+                let targetDeviceId = null;
+                if (navigator.mediaDevices.enumerateDevices) {
+                    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+                    const videoInputs = devices.filter(d => d.kind === 'videoinput');
+                    if (activeCam.id === 12) {
+                        const usbDev = videoInputs.find(d => /usb|external|uvc|webcam\s+2/i.test(d.label));
+                        if (usbDev) targetDeviceId = usbDev.deviceId;
+                        else if (videoInputs.length > 1) targetDeviceId = videoInputs[1].deviceId;
+                    } else {
+                        const builtIn = videoInputs.find(d => /integrated|internal|facetime|built-in|front|user/i.test(d.label));
+                        if (builtIn) targetDeviceId = builtIn.deviceId;
+                        else if (videoInputs.length > 0) targetDeviceId = videoInputs[0].deviceId;
+                    }
+                }
+                const constraints = {
+                    video: targetDeviceId
+                        ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: (activeCam.id === 12 ? 'environment' : 'user') },
+                    audio: false
+                };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                webcamStream = stream;
+                const v = document.createElement('video');
+                v.setAttribute('playsinline', 'true');
+                v.setAttribute('autoplay', 'true');
+                v.muted = true;
+                v.srcObject = stream;
+                await new Promise(r => {
+                    v.onloadedmetadata = () => { v.play().then(r).catch(r); };
+                    setTimeout(r, 1200);
+                });
+                webcamVideo = v;
+                isWebcamActive = true;
+                hasSignal = true;
+                updateSignalUI();
+                return true;
+            } catch (err) {
+                console.warn('[Webcam Popout] Cannot start webcam:', err);
+                isWebcamActive = false;
+                return false;
+            }
+        }
+
+        function stopWebcam() {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                webcamStream = null;
+            }
+            if (webcamVideo) {
+                try { webcamVideo.pause(); webcamVideo.srcObject = null; } catch(_) {}
+                webcamVideo = null;
+            }
+            isWebcamActive = false;
+        }
+
+        if (activeCam.id === 11 || activeCam.id === 12) {
+            startWebcam().catch(() => {});
+        }
+
         // Reconnect countdown and scan timer
         let reconnectCountdown = 5;
         const reconnectEl = document.getElementById('no-signal-reconnect');
 
         async function scanFeed() {
             if (hasSignal) return;
+            if (activeCam.id === 11 || activeCam.id === 12) {
+                const ok = await startWebcam();
+                if (ok) {
+                    hasSignal = true;
+                    updateSignalUI();
+                }
+                return;
+            }
             try {
                 const res = await fetch(`/api/camera/${activeCam.id}/feed_status`).catch(() => null);
                 if (res && res.ok) {
@@ -401,8 +570,38 @@
             const now = Date.now();
             osdTime.textContent = new Date(now).toISOString();
 
+            if (isWebcamActive && webcamVideo && webcamVideo.readyState >= 2) {
+                ctx.drawImage(webcamVideo, 0, 0, 1280, 720);
+
+                // Top pill badge
+                const isUsb = activeCam.id === 12;
+                ctx.fillStyle = isUsb ? 'rgba(8, 51, 68, 0.85)' : 'rgba(6, 78, 59, 0.85)';
+                ctx.fillRect(640 - 105, 12, 210, 22);
+                ctx.strokeStyle = isUsb ? '#06b6d4' : '#10b981';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(640 - 105, 12, 210, 22);
+                ctx.fillStyle = isUsb ? '#67e8f9' : '#6ee7b7';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(isUsb ? '● LIVE USB CAM [TEST FEED]' : '● LIVE LAPTOP WEBCAM', 640, 23);
+
+                // Center Reticle Crosshair
+                ctx.strokeStyle = isUsb ? 'rgba(6, 182, 212, 0.4)' : 'rgba(16, 185, 129, 0.4)';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(640 - 30, 360); ctx.lineTo(640 - 8, 360);
+                ctx.moveTo(640 + 8, 360); ctx.lineTo(640 + 30, 360);
+                ctx.moveTo(640, 360 - 30); ctx.lineTo(640, 360 - 8);
+                ctx.moveTo(640, 360 + 8); ctx.lineTo(640, 360 + 30);
+                ctx.stroke();
+
+                requestAnimationFrame(drawFrame);
+                return;
+            }
+
             if (!hasSignal) {
-                // Procedural No Signal Scene
+                // Procedural No Signal Scene: Uniform authentic Orion Logo standby for all cameras
                 ctx.fillStyle = '#0a0a0a';
                 ctx.fillRect(0, 0, 1280, 720);
 
@@ -416,18 +615,25 @@
                 }
 
                 if (orionLogo.complete && orionLogo.naturalWidth > 0) {
-                    ctx.drawImage(orionLogo, 640 - 45, 360 - 80, 90, 90);
+                    ctx.drawImage(orionLogo, 640 - 50, 360 - 90, 100, 100);
                 }
 
+                // Red NO SIGNAL badge box
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+                ctx.fillRect(640 - 90, 360 + 24, 180, 32);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+                ctx.lineWidth = 1.2;
+                ctx.strokeRect(640 - 90, 360 + 24, 180, 32);
+
                 ctx.fillStyle = '#ef4444';
-                ctx.font = 'bold 20px monospace';
+                ctx.font = 'bold 16px monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 ctx.fillText('NO SIGNAL', 640, 360 + 40);
 
                 ctx.fillStyle = '#94a3b8';
                 ctx.font = 'bold 12px monospace';
-                ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 68);
+                ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 74);
 
                 requestAnimationFrame(drawFrame);
                 return;

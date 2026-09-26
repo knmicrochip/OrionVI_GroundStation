@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Open%20MCT-v4.6.0-004c86?style=flat-square&logo=nasa&logoColor=white" alt="Open MCT" />
     <img src="https://img.shields.io/badge/Architecture-NASA--STD--3001-1e293b?style=flat-square" alt="NASA-STD-3001" />
     <img src="https://img.shields.io/badge/Power%20Bus-20.16V%20Nominal%20(5S)-10b981?style=flat-square" alt="Power Bus" />
-    <img src="https://img.shields.io/badge/Cameras-10x%20Flexible%20Layout-38bdf8?style=flat-square" alt="10x Cameras" />
+    <img src="https://img.shields.io/badge/Cameras-12x%20Mosaic%20Feeds-38bdf8?style=flat-square" alt="12x Cameras" />
     <img src="https://img.shields.io/badge/Comms-5GHz%20Wi--Fi%20RF-f59e0b?style=flat-square" alt="5GHz Comms" />
     <img src="https://img.shields.io/badge/Runtime-Zero--Install%20Portable-8b5cf6?style=flat-square" alt="Zero-Install" />
   </p>
@@ -34,7 +34,7 @@ Built on top of the **NASA Open MCT** framework, the station enforces strict **N
 ## Mission Interface Gallery
 
 ### 1. Operating Modes Master Dashboard (`HEALTH / OVERVIEW`)
-The central operations screen integrating 9 tabbed operational layouts (`HEALTH / OVERVIEW`, `CAMERAS`, `TELEOP`, `NAV / AUTONOMY`, `MANIPULATOR`, `SCIENCE`, `MAINTENANCE`, `SAFETY / COMM`, `Full Mission Master Time Strip`). Features the Rover Master Health & Anomaly Watchdog, the real-time **Main 20V Bus & Pack Voltages** graph streaming on the continuous UTC Real Time Clock, the Power System LAD Table, and the embedded **Rover MQTT Live System Logs Console**.
+The central operations screen integrating 9 tabbed operational layouts (`HEALTH / OVERVIEW`, `CAMERAS (12 FEEDS)`, `TELEOP`, `NAV / AUTONOMY`, `MANIPULATOR`, `SCIENCE`, `MAINTENANCE`, `SAFETY / COMM`, `Full Mission Master Time Strip`). Features the Rover Master Health & Anomaly Watchdog, the real-time **Main 20V Bus & Pack Voltages** graph streaming on the continuous UTC Real Time Clock, the Power System LAD Table, and the embedded **Rover MQTT Live System Logs Console**.
 
 ![Operating Modes Master Dashboard](docs/images/screenshot-clean-modes-dashboard.png)
 
@@ -60,14 +60,20 @@ Factual **20.1V – 20.2V** nominal operating plateau monitoring with individual
 
 ---
 
-### 4. 10-Camera Flexible Layout & Reconnect Watchdog
-Integrated **Flexible Layout** tab (`rover_cameras_flex`) within Rover Displays. Features primary hero view (Mast Camera), 9 auxiliary feeds, 5-second automatic reconnect watchdog, and independent sub-window popouts for multi-monitor command desks.
+### 4. 12-Camera Mosaic Layout, Dual Test Cameras & Reconnect Watchdog
+Integrated **Flexible Layout** tab (`CAMERAS (12 FEEDS)` / `disp_cameras`) within Operating Modes and Rover Displays. Features 10 rover operational feeds plus dedicated operator test feeds for the **Laptop Built-in Webcam** (`cam_laptop_test`) and an external **USB Camera** (`cam_usb_test`):
+- **10 Rover Operational Feeds**: Mast RGB, Mast Depth, Hazcams (Front L/R, Rear), 360 Deck Pano, Manipulator Wrist & Elbow, Science Micro Imager & Internal Chamber.
+- **2 Operator Test Feeds**:
+  - **Laptop Webcam (Test Camera)**: Auto-negotiated live camera feed with green telemetry HUD (`#10b981`).
+  - **USB Camera (Test Cam)**: External plug-and-play USB video feed with dedicated cyan HUD overlay (`#06b6d4`) and fail-safe device detection.
+- **Universal Orion Standby & Reconnect Watchdog**: Whenever any camera feed is offline or unlinked, the display shows the authentic Orion logo screen (dark `#0a0a0a` grid, centered Orion VI insignia, red `NO SIGNAL` box) and an active countdown timer (`Attempting reconnect in Xs...`). At 0s, the system automatically triggers a functional stream discovery / hardware restart, resetting the cycle if still offline.
+- **Instant Snapshot Export**: Real-time snapshot buttons (`📸 SNAPSHOT`) on the flexible camera deck, single enlarged camera view, and standalone popout window capture full-resolution PNG frames, store them directly in the Open MCT Notebook snapshot drawer (`notebook-snapshot-storage`), and trigger browser download.
 
-![10-Camera Flexible Layout in Rover Displays](docs/images/screenshot-10-cameras-flexible-layout-mixed.png)
+![12-Camera Mosaic Layout in Rover Displays](docs/images/screenshot-12-cameras-flexible-layout-mixed.png)
 
 <p align="center">
-  <img src="docs/images/screenshot-cameras-reconnect-countdown.png" alt="Camera Reconnect Watchdog Countdown" width="58%" />
-  <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Standalone Camera Popout Window" width="38%" />
+  <img src="docs/images/screenshot-camera-usb-clean.png" alt="USB Test Camera Clean Feed" width="48%" />
+  <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Orion Logo Standby Scene with Reconnect Countdown" width="48%" />
 </p>
 
 ---
@@ -134,6 +140,18 @@ A dedicated, real-time aerospace logging terminal embedded directly into the mas
 * **Integrated Telemetry**: Seamlessly updates Open MCT telemetry points `rover.logs.latest`, `rover.logs.count`, and `rover.logs.level`.
 
 ![Rover MQTT Live System Logs Console in HEALTH / OVERVIEW](docs/images/screenshot-overview-health-logs.png)
+
+---
+
+### 8. Realtime Telemetry Snapshot & Open Mode Modal Overlay
+Direct capture and inspection of operational displays via the integrated Open MCT Notebook snapshot system:
+- **Zero-Clipping Flex Layout**: Proper CSS flexbox dimensions preventing the `.c-overlay__button-bar` (`Done` button) from being pushed off-screen.
+- **Full-Fidelity Base64 Rendering**: High-contrast, sharp telemetry snapshot inspection with active annotation tools (`#snap-annotation`), reticle alignment, and one-click PNG / JPG direct exports compliant with NASA-STD-3001 ground operations.
+- **Fail-Safe Modal Closure**: Reliable event propagation handling on both `.c-overlay__close-button` and the aerospace `Done` action button.
+
+<p align="center">
+  <img src="docs/images/screenshot-snapshot-open-mode.png" alt="Open MCT Snapshot Modal in Open Mode" width="85%" />
+</p>
 
 ---
 
