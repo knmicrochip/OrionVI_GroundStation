@@ -35,6 +35,70 @@
     // =========================================================================
     // WEBCAM & USB CAMERA HARDWARE STREAM SERVICE (HTML5 getUserMedia Singleton)
     // =========================================================================
+    // Helper to query and resolve camera devices into distinct laptop and USB devices
+    async function enumerateCameraDevices() {
+        if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+            return { laptopDevice: null, usbDevice: null };
+        }
+        try {
+            let devices = await navigator.mediaDevices.enumerateDevices();
+            let videoInputs = devices.filter(d => d.kind === 'videoinput');
+
+            // If labels are empty (happens before initial getUserMedia), probe briefly
+            if (videoInputs.length > 0 && videoInputs.some(d => !d.label)) {
+                try {
+                    const probe = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                    probe.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                    devices = await navigator.mediaDevices.enumerateDevices();
+                    videoInputs = devices.filter(d => d.kind === 'videoinput');
+                } catch (_) {}
+            }
+
+            if (videoInputs.length === 0) {
+                return { laptopDevice: null, usbDevice: null };
+            }
+
+            if (videoInputs.length === 1) {
+                // Exactly ONE physical video input exists on this computer:
+                // It is the Laptop built-in webcam.
+                // There is NO external USB camera connected!
+                return {
+                    laptopDevice: videoInputs[0],
+                    usbDevice: null
+                };
+            }
+
+            // Multiple video devices attached!
+            const isLaptopLabel = (label) => /integrated|internal|facetime|built-in|front|user|laptop|hd webcam/i.test(label || '');
+            const isUsbLabel = (label) => /usb|external|uvc|plug|camlink|capture|c920|c270|logi/i.test(label || '');
+
+            let laptop = videoInputs.find(d => isLaptopLabel(d.label));
+            let usb = videoInputs.find(d => isUsbLabel(d.label));
+
+            if (!laptop && !usb) {
+                laptop = videoInputs[0];
+                usb = videoInputs[1];
+            } else if (laptop && !usb) {
+                usb = videoInputs.find(d => d.deviceId !== laptop.deviceId) || null;
+            } else if (!laptop && usb) {
+                laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
+            }
+
+            // STRICT SAFETY INVARIANT: laptop and usb MUST NEVER be the same device!
+            if (laptop && usb && laptop.deviceId === usb.deviceId) {
+                usb = null;
+            }
+
+            return {
+                laptopDevice: laptop || null,
+                usbDevice: usb || null
+            };
+        } catch (e) {
+            console.warn('[Camera Devices] Enumeration error:', e);
+            return { laptopDevice: null, usbDevice: null };
+        }
+    }
+
     class DeviceVideoStreamService {
         constructor(deviceType = 'laptop') {
             this.deviceType = deviceType; // 'laptop' or 'usb'
@@ -43,6 +107,7 @@
             this.isActive = false;
             this.isStarting = false;
             this.error = null;
+            this.deviceId = null;
             this.deviceName = deviceType === 'usb' ? 'USB Camera' : 'Laptop Webcam';
             this.listeners = new Set();
         }
@@ -60,78 +125,53 @@
             });
         }
 
-        async findTargetDeviceId() {
-            if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-                return null;
-            }
-            try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoInputs = devices.filter(d => d.kind === 'videoinput');
-                if (videoInputs.length === 0) return null;
-
-                if (this.deviceType === 'usb') {
-                    // Try to find device with label having 'usb', 'external', 'uvc', or index > 0
-                    const usbDev = videoInputs.find(d => /usb|external|uvc|webcam\s+2/i.test(d.label));
-                    if (usbDev) {
-                        this.deviceName = usbDev.label || 'USB Camera';
-                        return usbDev.deviceId;
-                    }
-                    if (videoInputs.length > 1) {
-                        this.deviceName = videoInputs[1].label || 'USB Camera (Device 2)';
-                        return videoInputs[1].deviceId;
-                    }
-                    // Only 1 camera found and it's likely laptop built-in
-                    return null;
-                } else {
-                    // Laptop built-in camera
-                    const builtIn = videoInputs.find(d => /integrated|internal|facetime|built-in|front|user/i.test(d.label));
-                    if (builtIn) {
-                        this.deviceName = builtIn.label || 'Laptop Webcam';
-                        return builtIn.deviceId;
-                    }
-                    this.deviceName = videoInputs[0].label || 'Laptop Webcam';
-                    return videoInputs[0].deviceId;
-                }
-            } catch (e) {
-                console.warn(`[DeviceVideoStreamService:${this.deviceType}] Error enumerating devices:`, e);
-                return null;
-            }
-        }
-
         async start() {
-            if (this.isActive && this.video) return true;
+            if (this.isActive && this.video && this.video.readyState >= 2) return true;
             if (this.isStarting) return false;
             this.isStarting = true;
             this.error = null;
 
             try {
                 if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                    throw new Error('Webcam mediaDevices API not available in this environment');
+                    throw new Error('Webcam mediaDevices API not available');
                 }
 
-                const targetDeviceId = await this.findTargetDeviceId();
+                const { laptopDevice, usbDevice } = await enumerateCameraDevices();
+                const targetDevice = (this.deviceType === 'usb') ? usbDevice : laptopDevice;
 
-                if (this.deviceType === 'usb' && !targetDeviceId) {
-                    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-                    const vCount = devices.filter(d => d.kind === 'videoinput').length;
-                    if (vCount <= 1) {
+                if (!targetDevice || !targetDevice.deviceId) {
+                    if (this.deviceType === 'usb') {
                         throw new Error('External USB camera not detected (connect USB camera)');
+                    } else {
+                        throw new Error('Laptop built-in webcam not detected');
                     }
                 }
 
+                // If currently running on another stream, stop first
+                if (this.stream) {
+                    this.stream.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                    this.stream = null;
+                }
+
+                // STRICT CONSTRAINT: Require the EXACT target deviceId. Never fall back to another camera.
                 const constraints = {
-                    video: targetDeviceId
-                        ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-                        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: (this.deviceType === 'usb' ? 'environment' : 'user') },
+                    video: {
+                        deviceId: { exact: targetDevice.deviceId },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
                     audio: false
                 };
 
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 this.stream = stream;
+                this.deviceId = targetDevice.deviceId;
 
                 const track = stream.getVideoTracks()[0];
                 if (track && track.label) {
                     this.deviceName = track.label;
+                } else if (targetDevice.label) {
+                    this.deviceName = targetDevice.label;
                 }
 
                 const video = document.createElement('video');
@@ -160,10 +200,15 @@
                 this.notify();
                 return true;
             } catch (err) {
-                console.warn(`[DeviceVideoStreamService:${this.deviceType}] Camera stream unavailable:`, err.message || err);
+                console.warn(`[DeviceVideoStreamService:${this.deviceType}] Camera unavailable:`, err.message || err);
                 this.error = err.message || 'Camera hardware unavailable';
                 this.isActive = false;
                 this.isStarting = false;
+                if (this.stream) {
+                    this.stream.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                    this.stream = null;
+                }
+                this.video = null;
                 this.notify();
                 return false;
             }
@@ -171,9 +216,7 @@
 
         stop() {
             if (this.stream) {
-                this.stream.getTracks().forEach(t => {
-                    try { t.stop(); } catch (_) {}
-                });
+                this.stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
                 this.stream = null;
             }
             if (this.video) {
@@ -184,6 +227,7 @@
                 this.video = null;
             }
             this.isActive = false;
+            this.deviceId = null;
             this.notify();
         }
 
@@ -206,12 +250,28 @@
         window.OrionUsbCamService = usbCamService;
     }
 
+    // Auto-listen to hardware connect / disconnect events
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', async () => {
+            console.log('[Camera Hardware] USB/Webcam device change detected!');
+            if (!usbCamService.isActive && window.OrionCameraManager) {
+                const ok = await usbCamService.start();
+                window.OrionCameraManager.setSignal(12, ok);
+            }
+            if (!laptopWebcamService.isActive && window.OrionCameraManager) {
+                const ok = await laptopWebcamService.start();
+                window.OrionCameraManager.setSignal(11, ok);
+            }
+        });
+    }
+
     class CameraManager {
         constructor() {
             this.activeCamId = 1;
             this.layoutMode = 'grid'; // 'grid', 'hero', 'dual', 'solo'
+            this.streamVideos = new Map();
             this.signals = new Map([
-                [1, false], // By default NO SIGNAL (awaiting hardware/stream)
+                [1, false], // By default NO SIGNAL (awaiting real hardware / stream)
                 [2, false],
                 [3, false],
                 [4, false],
@@ -232,12 +292,12 @@
             this.listeners = new Set();
             this._startHeartbeat();
 
-            // Auto-detect & synchronize hardware services
-            laptopWebcamService.subscribe(active => {
-                this.setSignal(11, active);
+            // Auto-detect & synchronize hardware services with boolean active state
+            laptopWebcamService.subscribe(state => {
+                this.setSignal(11, state.isActive);
             });
-            usbCamService.subscribe(active => {
-                this.setSignal(12, active);
+            usbCamService.subscribe(state => {
+                this.setSignal(12, state.isActive);
             });
         }
 
@@ -285,15 +345,17 @@
             try {
                 if (id === 11) {
                     const ok = await laptopWebcamService.start();
-                    if (ok) this.setSignal(11, true);
+                    this.setSignal(11, ok);
                 } else if (id === 12) {
                     const ok = await usbCamService.start();
-                    if (ok) this.setSignal(12, true);
+                    this.setSignal(12, ok);
                 } else {
                     const found = await this.scanForFeed(id);
-                    if (found) this.setSignal(id, true);
+                    this.setSignal(id, found);
                 }
-            } catch (_) {}
+            } catch (_) {
+                this.setSignal(id, false);
+            }
         }
 
         subscribe(cb) {
@@ -319,7 +381,26 @@
         }
 
         hasSignal(camId) {
-            return this.signals.get(parseInt(camId, 10)) ?? false;
+            const id = parseInt(camId, 10);
+            if (id === 11) {
+                return !!(laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2);
+            }
+            if (id === 12) {
+                return !!(usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2);
+            }
+            const vid = this.streamVideos.get(id);
+            if (vid && vid.readyState >= 2) return true;
+            return this.signals.get(id) ?? false;
+        }
+
+        getStreamVideo(camId) {
+            return this.streamVideos.get(parseInt(camId, 10)) || null;
+        }
+
+        setStreamVideo(camId, videoEl) {
+            const id = parseInt(camId, 10);
+            this.streamVideos.set(id, videoEl);
+            this.setSignal(id, !!(videoEl && videoEl.readyState >= 2));
         }
 
         setSignal(camId, val) {
@@ -334,11 +415,6 @@
                 }
                 this.notify();
             }
-        }
-
-        toggleSignal(camId) {
-            const id = parseInt(camId, 10);
-            this.setSignal(id, !this.hasSignal(id));
         }
 
         setLayoutMode(mode) {
@@ -386,42 +462,30 @@
 
         async scanForFeed(camId) {
             const id = parseInt(camId, 10);
-            const cam = this.getCameraById(id);
-
-            // 1. If signal is already active / simulated
-            if (this.hasSignal(id)) {
-                return true;
-            }
 
             // If Camera 11 (Laptop Webcam)
             if (id === 11) {
-                if (laptopWebcamService.isActive) {
+                if (laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2) {
                     this.setSignal(11, true);
                     return true;
                 }
                 const started = await laptopWebcamService.start();
-                if (started) {
-                    this.setSignal(11, true);
-                    return true;
-                }
-                return false;
+                this.setSignal(11, started);
+                return started;
             }
 
             // If Camera 12 (USB Cam)
             if (id === 12) {
-                if (usbCamService.isActive) {
+                if (usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2) {
                     this.setSignal(12, true);
                     return true;
                 }
                 const started = await usbCamService.start();
-                if (started) {
-                    this.setSignal(12, true);
-                    return true;
-                }
-                return false;
+                this.setSignal(12, started);
+                return started;
             }
 
-            // 2. Scan network / backend endpoint for this respective camera feed
+            // Rover feeds: query backend status
             try {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 800);
@@ -436,7 +500,7 @@
                 }
             } catch (_) {}
 
-            // Feed not implemented yet
+            this.setSignal(id, false);
             return false;
         }
     }
@@ -651,7 +715,38 @@
         }
     }
 
-    // Procedural Scene Renderer for Rover Camera Streams
+    // HUD Overlay for Live Rover Camera Feeds
+    function drawRoverFeedHudOverlay(ctx, cam, now, width, height) {
+        ctx.save();
+        const midX = width * 0.5;
+        const midY = height * 0.5;
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(midX - 20, midY); ctx.lineTo(midX - 5, midY);
+        ctx.moveTo(midX + 5, midY); ctx.lineTo(midX + 20, midY);
+        ctx.moveTo(midX, midY - 20); ctx.lineTo(midX, midY - 5);
+        ctx.moveTo(midX, midY + 5); ctx.lineTo(midX, midY + 20);
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+        ctx.fillRect(8, 8, 220, 20);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(8, 8, 220, 20);
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`● CAM ${cam.id}: ${cam.short} | LIVE`, 14, 21);
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`UTC: ${new Date(now).toISOString().substring(11, 23)}`, width - 8, height - 8);
+        ctx.restore();
+    }
+
+    // Scene Renderer for Camera Streams: NO SIM MODES!
     function drawCameraScene(ctx, cam, now, width, height) {
         // 1. Camera 11: Laptop Webcam
         if (cam.id === 11) {
@@ -679,203 +774,19 @@
             return;
         }
 
-        // If camera currently has no signal, render center Orion Logo and red NO SIGNAL
-        if (!cameraManager.hasSignal(cam.id)) {
-            drawNoSignalScene(ctx, cam, now, width, height);
+        // 3. Rover Cameras 1-10:
+        // No simulated graphics! If there is no real video stream from the rover camera,
+        // ALWAYS display the authentic Orion Logo NO SIGNAL standby screen with functional reconnect countdown.
+        const realVideo = cameraManager.getStreamVideo(cam.id);
+        if (realVideo && realVideo.readyState >= 2) {
+            ctx.save();
+            ctx.drawImage(realVideo, 0, 0, width, height);
+            drawRoverFeedHudOverlay(ctx, cam, now, width, height);
+            ctx.restore();
             return;
         }
 
-        ctx.save();
-
-        // Mars Yard terrain background
-        ctx.fillStyle = '#1e1b18';
-        ctx.fillRect(0, 0, width, height);
-
-        const midY = height * 0.5;
-        const groundGrad = ctx.createLinearGradient(0, midY, 0, height);
-        groundGrad.addColorStop(0, '#7c2d12');
-        groundGrad.addColorStop(1, '#451a03');
-        ctx.fillStyle = groundGrad;
-        ctx.fillRect(0, midY, width, height - midY);
-
-        const skyGrad = ctx.createLinearGradient(0, 0, 0, midY);
-        skyGrad.addColorStop(0, '#1c1917');
-        skyGrad.addColorStop(1, '#78350f');
-        ctx.fillStyle = skyGrad;
-        ctx.fillRect(0, 0, width, midY);
-
-        // Perspective-specific visuals for all 10 cameras
-        if (cam.id === 1) {
-            // Mast RGB: Horizon & depth grid & navigation rocks
-            ctx.strokeStyle = 'rgba(251, 146, 60, 0.5)';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(0, midY);
-            ctx.lineTo(width, midY);
-            ctx.stroke();
-
-            ctx.fillStyle = '#b45309';
-            ctx.fillRect(width * 0.35, midY + height * 0.1, width * 0.06, height * 0.08);
-            ctx.fillRect(width * 0.65, midY + height * 0.05, width * 0.08, height * 0.1);
-
-            ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
-            const step = width / 12;
-            for (let x = 0; x < width; x += step) {
-                ctx.beginPath();
-                ctx.moveTo(x, midY);
-                ctx.lineTo(x + (x - width * 0.5) * 0.8, height);
-                ctx.stroke();
-            }
-        } else if (cam.id === 2) {
-            // Mast Depth: Stereo Disparity Elevation Heatmap (Cyan to Purple)
-            ctx.fillStyle = '#0f172a';
-            ctx.fillRect(0, 0, width, height);
-            const gridCols = 16;
-            const gridRows = 10;
-            const cellW = width / gridCols;
-            const cellH = height / gridRows;
-            for (let r = 0; r < gridRows; r++) {
-                for (let c = 0; c < gridCols; c++) {
-                    const depth = Math.sin((c * 0.4) + (now * 0.002)) * Math.cos((r * 0.5));
-                    const hue = 180 + Math.floor(depth * 90);
-                    ctx.fillStyle = `hsla(${hue}, 85%, 45%, 0.7)`;
-                    ctx.fillRect(c * cellW + 1, r * cellH + 1, cellW - 2, cellH - 2);
-                }
-            }
-            ctx.fillStyle = '#38bdf8';
-            ctx.font = '10px monospace';
-            ctx.fillText('STEREO DEPTH POINTCLOUD: 1.84m CLOUD DENSITY', 12, 22);
-        } else if (cam.id === 3) {
-            // Front HazCam FL: Left Wheel in foreground & clearance arc
-            ctx.fillStyle = '#181818';
-            ctx.fillRect(width * 0.04, height * 0.55, width * 0.22, height * 0.45);
-            ctx.strokeStyle = '#22c55e';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(width * 0.15, height * 0.75, width * 0.12, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = '#22c55e';
-            ctx.font = '10px monospace';
-            ctx.fillText('HAZCAM FL | TREAD CLEARANCE 24cm', width * 0.32, height * 0.90);
-        } else if (cam.id === 4) {
-            // Front HazCam FR: Right Wheel in foreground & clearance arc
-            ctx.fillStyle = '#181818';
-            ctx.fillRect(width * 0.74, height * 0.55, width * 0.22, height * 0.45);
-            ctx.strokeStyle = '#16a34a';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.arc(width * 0.85, height * 0.75, width * 0.12, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.fillStyle = '#16a34a';
-            ctx.font = '10px monospace';
-            ctx.fillText('HAZCAM FR | TREAD CLEARANCE 24cm', width * 0.24, height * 0.90);
-        } else if (cam.id === 5) {
-            // Rear HazCam: Reverse traverse guide lines & rear bumper
-            ctx.fillStyle = '#1e1b18';
-            ctx.fillRect(width * 0.15, height * 0.85, width * 0.7, height * 0.15);
-            ctx.strokeStyle = '#84cc16';
-            ctx.lineWidth = 1.5;
-            ctx.setLineDash([6, 6]);
-            ctx.beginPath();
-            ctx.moveTo(width * 0.25, height * 0.85);
-            ctx.lineTo(width * 0.35, height * 0.4);
-            ctx.moveTo(width * 0.75, height * 0.85);
-            ctx.lineTo(width * 0.65, height * 0.4);
-            ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = '#84cc16';
-            ctx.font = '10px monospace';
-            ctx.fillText('REVERSE HAZARD TRACK', width * 0.38, height * 0.45);
-        } else if (cam.id === 6) {
-            // Arm Wrist Gripper: ST3215 gripper jaws & crosshair
-            ctx.fillStyle = '#27272a';
-            ctx.fillRect(width * 0.42, height * 0.60, width * 0.05, height * 0.40);
-            ctx.fillRect(width * 0.53, height * 0.60, width * 0.05, height * 0.40);
-            ctx.strokeStyle = '#f97316';
-            ctx.lineWidth = 1.5;
-            ctx.beginPath();
-            ctx.moveTo(width * 0.45, height * 0.50); ctx.lineTo(width * 0.55, height * 0.50);
-            ctx.moveTo(width * 0.50, height * 0.45); ctx.lineTo(width * 0.50, height * 0.55);
-            ctx.stroke();
-            ctx.fillStyle = '#f97316';
-            ctx.font = '10px monospace';
-            ctx.fillText('GRIPPER AXIS: 42mm APERTURE', width * 0.36, height * 0.40);
-        } else if (cam.id === 7) {
-            // Arm Elbow: Articulated Link kinematic overview
-            ctx.strokeStyle = '#ea580c';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(width * 0.2, height * 0.8);
-            ctx.lineTo(width * 0.5, height * 0.4);
-            ctx.lineTo(width * 0.8, height * 0.6);
-            ctx.stroke();
-            ctx.fillStyle = '#ea580c';
-            ctx.font = '10px monospace';
-            ctx.fillText('SHOULDER: +42° | ELBOW: -18° | JOINT LOAD: 2.1 Nm', width * 0.24, height * 0.3);
-        } else if (cam.id === 8) {
-            // Science Macro: Microscope texture & scale bar
-            ctx.fillStyle = '#451a03';
-            ctx.fillRect(0, 0, width, height);
-            ctx.fillStyle = '#d97706';
-            for (let i = 0; i < 40; i++) {
-                const rx = ((i * 37) % width);
-                const ry = ((i * 59) % height);
-                ctx.beginPath();
-                ctx.arc(rx, ry, (i % 6) + 2, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(width * 0.7, height * 0.88, width * 0.2, 3);
-            ctx.fillStyle = '#eab308';
-            ctx.font = '10px monospace';
-            ctx.fillText('MACRO SCALE: [ 500 μm ] | FOCUS: PEAK', width * 0.65, height * 0.85);
-        } else if (cam.id === 9) {
-            // Science Chamber: Carousel tubes
-            ctx.fillStyle = '#18181b';
-            ctx.beginPath();
-            const r = Math.min(width, height) * 0.32;
-            ctx.arc(width * 0.5, height * 0.5, r, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.strokeStyle = '#a855f7';
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-            for (let i = 0; i < 6; i++) {
-                const angle = (i * Math.PI / 3);
-                const cx = width * 0.5 + Math.cos(angle) * r * 0.65;
-                const cy = height * 0.5 + Math.sin(angle) * r * 0.65;
-                ctx.fillStyle = i === 1 ? '#22c55e' : '#3f3f46';
-                ctx.beginPath();
-                ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-                ctx.fill();
-            }
-            ctx.fillStyle = '#a855f7';
-            ctx.font = '10px monospace';
-            ctx.fillText('CAROUSEL CHAMBER | ACTIVE: SLOT #2', width * 0.34, height * 0.5);
-        } else if (cam.id === 10) {
-            // Top Deck Context: 360 panorama of rover deck, solar panel & antenna mast
-            ctx.fillStyle = '#09090b';
-            ctx.fillRect(0, 0, width, height);
-            ctx.fillStyle = '#1e293b';
-            ctx.fillRect(width * 0.2, height * 0.6, width * 0.6, height * 0.35); // solar panel
-            ctx.strokeStyle = '#ec4899';
-            ctx.lineWidth = 2;
-            ctx.strokeRect(width * 0.2, height * 0.6, width * 0.6, height * 0.35);
-            ctx.strokeStyle = '#f472b6';
-            ctx.beginPath();
-            ctx.moveTo(width * 0.5, height * 0.6);
-            ctx.lineTo(width * 0.5, height * 0.2); // mast
-            ctx.stroke();
-            ctx.fillStyle = '#ec4899';
-            ctx.font = '10px monospace';
-            ctx.fillText('TOP DECK CONTEXT | SOLAR & RF MAST OK', width * 0.32, height * 0.18);
-        }
-
-        // Small OSD timestamp at bottom left
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
-        ctx.font = '9px monospace';
-        ctx.fillText(`UTC: ${new Date(now).toISOString().substring(11, 23)}`, 8, height - 6);
-
-        ctx.restore();
+        drawNoSignalScene(ctx, cam, now, width, height);
     }
 
     function OrionCameraMosaicPlugin() {
@@ -1003,7 +914,7 @@
 
             <!-- Viewport -->
             <div style="position: relative; flex: 1; min-height: 0; background: #0a0a0a; display: flex; align-items: center; justify-content: center; overflow: hidden;">
-                <canvas id="single-cam-canvas" style="width: 100%; height: 100%; object-fit: contain; display: block; cursor: pointer;" title="Double-click to toggle camera signal simulation"></canvas>
+                <canvas id="single-cam-canvas" style="width: 100%; height: 100%; object-fit: contain; display: block;"></canvas>
                 
                 <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
                 <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 10; pointer-events: none; user-select: none;">
@@ -1029,10 +940,6 @@
         const ctx = canvas.getContext('2d');
         canvas.width = 1280;
         canvas.height = 720;
-
-        canvas.addEventListener('dblclick', () => {
-            cameraManager.toggleSignal(cam.id);
-        });
 
         // Bind Single Camera Snapshot Button
         const btnSnap = container.querySelector('#single-btn-snapshot');

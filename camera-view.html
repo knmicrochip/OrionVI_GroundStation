@@ -232,7 +232,6 @@
                 <span id="hud-bitrate" style="color: #38bdf8;">12.4 Mbps</span>
             </div>
             <button id="btn-toggle-reticle" class="btn-hud">RETICLE</button>
-            <button id="btn-toggle-signal" class="btn-hud">📶 SIM SIGNAL</button>
             <button id="btn-snapshot" class="btn-hud btn-primary">📸 SNAPSHOT</button>
             <button id="btn-close" class="btn-hud" onclick="window.close()">✕ CLOSE</button>
         </div>
@@ -427,7 +426,6 @@
         const noSigOverlay = document.getElementById('no-signal-overlay');
         const liveDot = document.getElementById('cam-live-dot');
         const osdStatus = document.getElementById('osd-status');
-        const btnSignal = document.getElementById('btn-toggle-signal');
 
         function updateSignalUI() {
             noSigOverlay.style.display = hasSignal ? 'none' : 'flex';
@@ -438,14 +436,59 @@
             hudBitrate.style.color = hasSignal ? '#38bdf8' : '#71717a';
             osdStatus.textContent = hasSignal ? 'DOWNLINK: NOMINAL (99.8% PKTS)' : 'DOWNLINK: NO CARRIER (0.0% PKTS)';
             osdStatus.style.color = hasSignal ? '#38bdf8' : '#ef4444';
-            btnSignal.textContent = `📶 ${hasSignal ? 'CUT SIGNAL' : 'SIM SIGNAL'}`;
         }
         updateSignalUI();
 
-        btnSignal.addEventListener('click', () => {
-            hasSignal = !hasSignal;
-            updateSignalUI();
-        });
+        // Query and separate physical camera devices into Laptop Webcam and external USB Camera
+        async function enumerateCameraDevices() {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+                return { laptopDevice: null, usbDevice: null };
+            }
+            try {
+                let devices = await navigator.mediaDevices.enumerateDevices();
+                let videoInputs = devices.filter(d => d.kind === 'videoinput');
+
+                // If labels are empty (happens before initial getUserMedia), probe briefly
+                if (videoInputs.length > 0 && videoInputs.some(d => !d.label)) {
+                    try {
+                        const probe = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        probe.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                        devices = await navigator.mediaDevices.enumerateDevices();
+                        videoInputs = devices.filter(d => d.kind === 'videoinput');
+                    } catch (_) {}
+                }
+
+                if (videoInputs.length === 0) return { laptopDevice: null, usbDevice: null };
+                if (videoInputs.length === 1) {
+                    // Only 1 device attached: Laptop Webcam. No USB Camera!
+                    return { laptopDevice: videoInputs[0], usbDevice: null };
+                }
+
+                const isLaptopLabel = (label) => /integrated|internal|facetime|built-in|front|user|laptop|hd webcam/i.test(label || '');
+                const isUsbLabel = (label) => /usb|external|uvc|plug|camlink|capture|c920|c270|logi/i.test(label || '');
+
+                let laptop = videoInputs.find(d => isLaptopLabel(d.label));
+                let usb = videoInputs.find(d => isUsbLabel(d.label));
+
+                if (!laptop && !usb) {
+                    laptop = videoInputs[0];
+                    usb = videoInputs[1];
+                } else if (laptop && !usb) {
+                    usb = videoInputs.find(d => d.deviceId !== laptop.deviceId) || null;
+                } else if (!laptop && usb) {
+                    laptop = videoInputs.find(d => d.deviceId !== usb.deviceId) || null;
+                }
+
+                // Strictly forbid same deviceId
+                if (laptop && usb && laptop.deviceId === usb.deviceId) {
+                    usb = null;
+                }
+
+                return { laptopDevice: laptop || null, usbDevice: usb || null };
+            } catch (e) {
+                return { laptopDevice: null, usbDevice: null };
+            }
+        }
 
         // Webcam stream service for standalone popout window
         let webcamStream = null;
@@ -453,29 +496,30 @@
         let isWebcamActive = false;
 
         async function startWebcam() {
-            if (isWebcamActive && webcamVideo) return true;
+            if (isWebcamActive && webcamVideo && webcamVideo.readyState >= 2) return true;
             try {
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
                     throw new Error('getUserMedia not supported');
                 }
-                let targetDeviceId = null;
-                if (navigator.mediaDevices.enumerateDevices) {
-                    const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
-                    const videoInputs = devices.filter(d => d.kind === 'videoinput');
-                    if (activeCam.id === 12) {
-                        const usbDev = videoInputs.find(d => /usb|external|uvc|webcam\s+2/i.test(d.label));
-                        if (usbDev) targetDeviceId = usbDev.deviceId;
-                        else if (videoInputs.length > 1) targetDeviceId = videoInputs[1].deviceId;
-                    } else {
-                        const builtIn = videoInputs.find(d => /integrated|internal|facetime|built-in|front|user/i.test(d.label));
-                        if (builtIn) targetDeviceId = builtIn.deviceId;
-                        else if (videoInputs.length > 0) targetDeviceId = videoInputs[0].deviceId;
-                    }
+
+                const { laptopDevice, usbDevice } = await enumerateCameraDevices();
+                const targetDevice = (activeCam.id === 12) ? usbDevice : laptopDevice;
+
+                if (!targetDevice || !targetDevice.deviceId) {
+                    throw new Error(activeCam.id === 12 ? 'External USB camera not detected (connect USB camera)' : 'Laptop webcam not detected');
                 }
+
+                if (webcamStream) {
+                    webcamStream.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                    webcamStream = null;
+                }
+
                 const constraints = {
-                    video: targetDeviceId
-                        ? { deviceId: { exact: targetDeviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-                        : { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: (activeCam.id === 12 ? 'environment' : 'user') },
+                    video: {
+                        deviceId: { exact: targetDevice.deviceId },
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    },
                     audio: false
                 };
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -492,11 +536,19 @@
                 webcamVideo = v;
                 isWebcamActive = true;
                 hasSignal = true;
+                reconnectCountdown = 5;
                 updateSignalUI();
                 return true;
             } catch (err) {
-                console.warn('[Webcam Popout] Cannot start webcam:', err);
+                console.warn('[Webcam Popout] Camera unavailable:', err.message || err);
                 isWebcamActive = false;
+                hasSignal = false;
+                if (webcamStream) {
+                    webcamStream.getTracks().forEach(t => { try { t.stop(); } catch(_) {} });
+                    webcamStream = null;
+                }
+                webcamVideo = null;
+                updateSignalUI();
                 return false;
             }
         }
@@ -511,10 +563,21 @@
                 webcamVideo = null;
             }
             isWebcamActive = false;
+            hasSignal = false;
+            updateSignalUI();
         }
 
         if (activeCam.id === 11 || activeCam.id === 12) {
             startWebcam().catch(() => {});
+        }
+
+        // Listen for hardware plug/unplug events
+        if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                if (!hasSignal && (activeCam.id === 11 || activeCam.id === 12)) {
+                    await startWebcam();
+                }
+            });
         }
 
         // Reconnect countdown and scan timer
@@ -526,8 +589,7 @@
             if (activeCam.id === 11 || activeCam.id === 12) {
                 const ok = await startWebcam();
                 if (ok) {
-                    hasSignal = true;
-                    updateSignalUI();
+                    reconnectCountdown = 5;
                 }
                 return;
             }
@@ -537,6 +599,7 @@
                     const data = await res.json();
                     if (data && data.online) {
                         hasSignal = true;
+                        reconnectCountdown = 5;
                         updateSignalUI();
                     }
                 }
@@ -559,13 +622,13 @@
                 reconnectEl.textContent = `Attempting reconnect in ${reconnectCountdown}s...`;
             }
 
-            // At 0 app checks for signal once more from respective camera
+            // At 0 actively restart connection attempt
             if (reconnectCountdown === 0) {
                 await scanFeed();
             }
         }, 1000);
 
-        // Animation / Feed generation loop
+        // Rendering loop: NO SIM MODES!
         function drawFrame() {
             const now = Date.now();
             osdTime.textContent = new Date(now).toISOString();
@@ -584,7 +647,7 @@
                 ctx.font = 'bold 10px monospace';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(isUsb ? '● LIVE USB CAM [TEST FEED]' : '● LIVE LAPTOP WEBCAM', 640, 23);
+                ctx.fillText(isUsb ? '● LIVE USB CAMERA' : '● LIVE LAPTOP WEBCAM', 640, 23);
 
                 // Center Reticle Crosshair
                 ctx.strokeStyle = isUsb ? 'rgba(6, 182, 212, 0.4)' : 'rgba(16, 185, 129, 0.4)';
@@ -600,196 +663,39 @@
                 return;
             }
 
-            if (!hasSignal) {
-                // Procedural No Signal Scene: Uniform authentic Orion Logo standby for all cameras
-                ctx.fillStyle = '#0a0a0a';
-                ctx.fillRect(0, 0, 1280, 720);
-
-                ctx.strokeStyle = '#181818';
-                ctx.lineWidth = 1;
-                for (let x = 0; x < 1280; x += 40) {
-                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
-                }
-                for (let y = 0; y < 720; y += 40) {
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
-                }
-
-                if (orionLogo.complete && orionLogo.naturalWidth > 0) {
-                    ctx.drawImage(orionLogo, 640 - 50, 360 - 90, 100, 100);
-                }
-
-                // Red NO SIGNAL badge box
-                ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
-                ctx.fillRect(640 - 90, 360 + 24, 180, 32);
-                ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
-                ctx.lineWidth = 1.2;
-                ctx.strokeRect(640 - 90, 360 + 24, 180, 32);
-
-                ctx.fillStyle = '#ef4444';
-                ctx.font = 'bold 16px monospace';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('NO SIGNAL', 640, 360 + 40);
-
-                ctx.fillStyle = '#94a3b8';
-                ctx.font = 'bold 12px monospace';
-                ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 74);
-
-                requestAnimationFrame(drawFrame);
-                return;
-            }
-
-            // Background terrain & sky
-            ctx.fillStyle = '#1e1b18';
+            // Authentic Orion Logo Standby Scene: No sim graphics!
+            ctx.fillStyle = '#0a0a0a';
             ctx.fillRect(0, 0, 1280, 720);
 
-            const groundGrad = ctx.createLinearGradient(0, 360, 0, 720);
-            groundGrad.addColorStop(0, '#7c2d12');
-            groundGrad.addColorStop(1, '#451a03');
-            ctx.fillStyle = groundGrad;
-            ctx.fillRect(0, 360, 1280, 360);
-
-            const skyGrad = ctx.createLinearGradient(0, 0, 0, 360);
-            skyGrad.addColorStop(0, '#1c1917');
-            skyGrad.addColorStop(1, '#78350f');
-            ctx.fillStyle = skyGrad;
-            ctx.fillRect(0, 0, 1280, 360);
-
-            if (activeCam.id === 1) {
-                // RealSense Mast RGB
-                ctx.strokeStyle = 'rgba(251, 146, 60, 0.4)';
-                ctx.lineWidth = 1.5;
-                ctx.beginPath();
-                ctx.moveTo(0, 360);
-                ctx.lineTo(1280, 360);
-                ctx.stroke();
-
-                ctx.fillStyle = '#b45309';
-                ctx.fillRect(450, 420, 60, 40);
-                ctx.fillRect(780, 390, 80, 50);
-
-                ctx.strokeStyle = 'rgba(56, 189, 248, 0.15)';
-                for (let x = 0; x < 1280; x += 80) {
-                    ctx.beginPath();
-                    ctx.moveTo(x, 360);
-                    ctx.lineTo(x + (x - 640) * 0.8, 720);
-                    ctx.stroke();
-                }
-            } else if (activeCam.id === 2) {
-                // Mast Depth Pointcloud
-                ctx.fillStyle = '#0f172a';
-                ctx.fillRect(0, 0, 1280, 720);
-                for (let r = 0; r < 12; r++) {
-                    for (let c = 0; c < 20; c++) {
-                        const depth = Math.sin((c * 0.4) + (now * 0.002)) * Math.cos((r * 0.5));
-                        ctx.fillStyle = `hsla(${180 + depth * 90}, 85%, 45%, 0.7)`;
-                        ctx.fillRect(c * 64 + 2, r * 60 + 2, 60, 56);
-                    }
-                }
-                ctx.fillStyle = '#38bdf8';
-                ctx.font = '16px monospace';
-                ctx.fillText('STEREO DEPTH POINTCLOUD: 1.84m CLOUD DENSITY', 400, 40);
-            } else if (activeCam.id === 3) {
-                // Front Chassis HazCam FL
-                ctx.fillStyle = '#181818';
-                ctx.fillRect(60, 420, 240, 300);
-                ctx.strokeStyle = '#22c55e';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(180, 570, 120, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.fillStyle = '#22c55e';
-                ctx.font = '16px monospace';
-                ctx.fillText('FRONT CHASSIS HAZCAM FL | TREAD CLEARANCE 24cm', 440, 670);
-            } else if (activeCam.id === 4) {
-                // Front Chassis HazCam FR
-                ctx.fillStyle = '#181818';
-                ctx.fillRect(980, 420, 240, 300);
-                ctx.strokeStyle = '#16a34a';
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.arc(1100, 570, 120, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.fillStyle = '#16a34a';
-                ctx.font = '16px monospace';
-                ctx.fillText('FRONT CHASSIS HAZCAM FR | TREAD CLEARANCE 24cm', 440, 670);
-            } else if (activeCam.id === 5) {
-                // Rear HazCam
-                ctx.fillStyle = '#1e1b18';
-                ctx.fillRect(200, 620, 880, 100);
-                ctx.strokeStyle = '#84cc16';
-                ctx.lineWidth = 2;
-                ctx.setLineDash([8, 8]);
-                ctx.beginPath();
-                ctx.moveTo(350, 620); ctx.lineTo(480, 360);
-                ctx.moveTo(930, 620); ctx.lineTo(800, 360);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                ctx.fillStyle = '#84cc16';
-                ctx.font = '16px monospace';
-                ctx.fillText('REVERSE HAZARD TRACK | NO REAR OBSTACLES', 450, 420);
-            } else if (activeCam.id === 6) {
-                // Manipulator Wrist
-                ctx.fillStyle = '#27272a';
-                ctx.fillRect(520, 450, 70, 270);
-                ctx.fillRect(690, 450, 70, 270);
-                ctx.strokeStyle = '#f97316';
-                ctx.lineWidth = 2;
-                ctx.beginPath();
-                ctx.moveTo(560, 400); ctx.lineTo(720, 400);
-                ctx.moveTo(640, 320); ctx.lineTo(640, 480);
-                ctx.stroke();
-                ctx.fillStyle = '#f97316';
-                ctx.font = '16px monospace';
-                ctx.fillText('MANIPULATOR GRIPPER ALIGNMENT: 42mm APERTURE', 420, 300);
-            } else if (activeCam.id === 7) {
-                // Manipulator Elbow
-                ctx.strokeStyle = '#ea580c';
-                ctx.lineWidth = 6;
-                ctx.beginPath();
-                ctx.moveTo(250, 600); ctx.lineTo(640, 350); ctx.lineTo(1000, 500);
-                ctx.stroke();
-                ctx.fillStyle = '#ea580c';
-                ctx.font = '16px monospace';
-                ctx.fillText('ELBOW OVERVIEW | SHOULDER: +42° | ELBOW: -18°', 420, 250);
-            } else if (activeCam.id === 8) {
-                // Science Macro
-                ctx.fillStyle = '#451a03';
-                ctx.fillRect(0, 0, 1280, 720);
-                ctx.fillStyle = '#d97706';
-                for (let i = 0; i < 60; i++) {
-                    ctx.beginPath();
-                    ctx.arc((i * 47) % 1280, (i * 73) % 720, (i % 8) + 3, 0, Math.PI * 2);
-                    ctx.fill();
-                }
-                ctx.fillStyle = '#eab308';
-                ctx.font = '16px monospace';
-                ctx.fillText('MACRO REGOLITH PROBING: PEAK FOCUS | 500 μm SCALE', 400, 660);
-            } else if (activeCam.id === 9) {
-                // Science Chamber
-                ctx.fillStyle = '#252526';
-                ctx.beginPath();
-                ctx.arc(640, 360, 200, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#a855f7';
-                ctx.lineWidth = 3;
-                ctx.stroke();
-                ctx.fillStyle = '#a855f7';
-                ctx.font = '16px monospace';
-                ctx.fillText('CYCLONE SAMPLING CHAMBER | TUBE #2 ACTIVE', 450, 360);
-            } else if (activeCam.id === 10) {
-                // Top Deck Context
-                ctx.fillStyle = '#09090b';
-                ctx.fillRect(0, 0, 1280, 720);
-                ctx.fillStyle = '#1e293b';
-                ctx.fillRect(300, 480, 680, 240);
-                ctx.strokeStyle = '#ec4899';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(300, 480, 680, 240);
-                ctx.fillStyle = '#ec4899';
-                ctx.font = '16px monospace';
-                ctx.fillText('TOP DECK CONTEXT 360 | SOLAR & RF MAST NOMINAL', 430, 450);
+            ctx.strokeStyle = '#181818';
+            ctx.lineWidth = 1;
+            for (let x = 0; x < 1280; x += 40) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
             }
+            for (let y = 0; y < 720; y += 40) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
+            }
+
+            if (orionLogo.complete && orionLogo.naturalWidth > 0) {
+                ctx.drawImage(orionLogo, 640 - 50, 360 - 90, 100, 100);
+            }
+
+            // Red NO SIGNAL badge box
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+            ctx.fillRect(640 - 90, 360 + 24, 180, 32);
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+            ctx.lineWidth = 1.2;
+            ctx.strokeRect(640 - 90, 360 + 24, 180, 32);
+
+            ctx.fillStyle = '#ef4444';
+            ctx.font = 'bold 16px monospace';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('NO SIGNAL', 640, 360 + 40);
+
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = 'bold 12px monospace';
+            ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 74);
 
             requestAnimationFrame(drawFrame);
         }

@@ -314,17 +314,6 @@ async function createWindow() {
                     `);
                     console.log('[Test Cameras] Countdown Progression Diagnostic:', JSON.stringify(progressDiag));
 
-                    // Toggle signal simulation on for Mast Camera (cam_mast_rgb)
-                    console.log('[Test Cameras] Toggling signal simulation on for Mast camera...');
-                    await mainWindow.webContents.executeJavaScript(`
-                        (() => {
-                            if (window.OrionCameraManager) {
-                                window.OrionCameraManager.toggleSignal(1);
-                            }
-                        })()
-                    `);
-                    await new Promise(r => setTimeout(r, 2000));
-
                     const tabCamerasLiveImg = await mainWindow.webContents.capturePage();
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras-live.png'), tabCamerasLiveImg.toPNG());
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-10-cameras-flexible-layout-mixed.png'), tabCamerasLiveImg.toPNG());
