@@ -17,20 +17,20 @@
  */
 
 (function () {
-    const CAMERAS = [
-        { id: 1, key: 'cam_mast_rgb', alias: 'cam_mast', name: 'Mast Intel RealSense D435i RGB', short: 'MAST RGB', resolution: '1920x1080', role: 'Perception / SLAM', color: '#38bdf8' },
-        { id: 2, key: 'cam_mast_depth', name: 'Mast RealSense Depth Sensor', short: 'MAST DEPTH', resolution: '1280x720', role: 'Disparity / 3D Mapping', color: '#06b6d4' },
-        { id: 3, key: 'cam_haz_fl', alias: 'cam_front', name: 'Front Left Chassis Hazard Cam', short: 'HAZCAM FL', resolution: '1280x720', role: 'Mobility / Obstacle Left', color: '#22c55e' },
-        { id: 4, key: 'cam_haz_fr', name: 'Front Right Chassis Hazard Cam', short: 'HAZCAM FR', resolution: '1280x720', role: 'Mobility / Obstacle Right', color: '#16a34a' },
-        { id: 5, key: 'cam_haz_rear', name: 'Rear Chassis Hazard Cam', short: 'HAZCAM REAR', resolution: '1280x720', role: 'Reverse / Tether Safety', color: '#84cc16' },
-        { id: 6, key: 'cam_arm_wrist', alias: 'cam_arm', name: 'Manipulator Wrist / Gripper Cam', short: 'ARM WRIST', resolution: '1280x720', role: 'Inspection / Grasping', color: '#f97316' },
-        { id: 7, key: 'cam_arm_elbow', name: 'Manipulator Elbow Overview Cam', short: 'ARM ELBOW', resolution: '1280x720', role: 'Kinematics / Collision Guard', color: '#ea580c' },
-        { id: 8, key: 'cam_science_macro', name: 'Science Macro Probing Cam', short: 'SCI MACRO', resolution: '1920x1080', role: 'Regolith / Drill Core', color: '#eab308' },
-        { id: 9, key: 'cam_science_chamber', alias: 'cam_science', name: 'Science Internal Carousel Cam', short: 'SCI CHAMBER', resolution: '1280x720', role: 'Sample Carousel / Reagents', color: '#a855f7' },
-        { id: 10, key: 'cam_deck_pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360', color: '#ec4899' },
-        { id: 11, key: 'cam_laptop_test', alias: 'cam_test', name: 'Laptop Webcam (Test Camera)', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', color: '#10b981', isTestCam: true },
-        { id: 12, key: 'cam_usb_test', alias: 'cam_usb', name: 'USB Camera (Test Cam)', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', color: '#06b6d4', isTestCam: true }
-    ];
+    function getCamerasList() {
+        if (typeof window !== 'undefined' && window.OrionCameraConfig) {
+            return window.OrionCameraConfig.getAllCameras();
+        }
+        return [
+            { id: 1, key: 'cam_axis_1', alias: 'cam_mast_rgb', name: 'AXIS 1', short: 'AXIS 1', resolution: '1280x720', role: 'Camera 1', color: '#38bdf8', isAxis: true, axisChannel: 1 },
+            { id: 2, key: 'cam_axis_2', alias: 'cam_mast_depth', name: 'AXIS 2', short: 'AXIS 2', resolution: '1280x720', role: 'Camera 2', color: '#06b6d4', isAxis: true, axisChannel: 2 },
+            { id: 3, key: 'cam_axis_3', alias: 'cam_haz_fl', name: 'AXIS 3', short: 'AXIS 3', resolution: '1280x720', role: 'Camera 3', color: '#22c55e', isAxis: true, axisChannel: 3 },
+            { id: 4, key: 'cam_axis_4', alias: 'cam_haz_fr', name: 'AXIS 4', short: 'AXIS 4', resolution: '1280x720', role: 'Camera 4', color: '#f59e0b', isAxis: true, axisChannel: 4 },
+            { id: 5, key: 'cam_laptop_test', alias: 'cam_test', name: 'Laptop Webcam', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', color: '#10b981', isTestCam: true },
+            { id: 6, key: 'cam_usb_test', alias: 'cam_usb', name: 'USB Camera', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', color: '#06b6d4', isTestCam: true }
+        ];
+    }
+    const CAMERAS = getCamerasList();
 
     // =========================================================================
     // WEBCAM & USB CAMERA HARDWARE STREAM SERVICE (HTML5 getUserMedia Singleton)
@@ -290,6 +290,81 @@
         window.OrionUsbCamService = usbCamService;
     }
 
+    // =========================================================================
+    // AXIS IP CAMERA HARDWARE STREAM CLIENT (Connects to /api/camera/axis/:id/stream)
+    // =========================================================================
+    class AxisCameraStreamService {
+        constructor(channelId) {
+            this.channelId = channelId;
+            this.isActive = false;
+            this.img = null;
+            this.listeners = new Set();
+            this.lastFrameTime = 0;
+            this.error = null;
+            this._initStream();
+        }
+
+        _initStream() {
+            if (typeof Image === 'undefined') return;
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+
+            img.onload = () => {
+                this.isActive = true;
+                this.lastFrameTime = Date.now();
+                this.error = null;
+                if (window.OrionCameraManager) {
+                    window.OrionCameraManager.setSignal(this.channelId, true);
+                }
+                this.notify();
+            };
+
+            img.onerror = () => {
+                this.isActive = false;
+                this.error = `AXIS ${this.channelId} Offline`;
+                if (window.OrionCameraManager) {
+                    window.OrionCameraManager.setSignal(this.channelId, false);
+                }
+                this.notify();
+            };
+
+            img.src = `/api/camera/axis/${this.channelId}/stream`;
+            this.img = img;
+        }
+
+        reconnect() {
+            if (this.img) {
+                this.img.src = `/api/camera/axis/${this.channelId}/stream?t=` + Date.now();
+            } else {
+                this._initStream();
+            }
+        }
+
+        hasLiveFrame() {
+            return Boolean(this.isActive && this.img && this.img.complete && this.img.naturalWidth > 0);
+        }
+
+        subscribe(cb) {
+            this.listeners.add(cb);
+            cb({ isActive: this.isActive, error: this.error });
+            return () => this.listeners.delete(cb);
+        }
+
+        notify() {
+            const state = { isActive: this.isActive, error: this.error };
+            this.listeners.forEach(cb => {
+                try { cb(state); } catch (_) {}
+            });
+        }
+    }
+
+    const axisStreams = new Map([
+        [1, new AxisCameraStreamService(1)],
+        [2, new AxisCameraStreamService(2)],
+        [3, new AxisCameraStreamService(3)],
+        [4, new AxisCameraStreamService(4)]
+    ]);
+
     // Auto-listen to hardware connect / disconnect events
     if (typeof navigator !== 'undefined' && navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
         navigator.mediaDevices.addEventListener('devicechange', async () => {
@@ -301,7 +376,10 @@
                 if (!usbCamService.isActive || !usbCamService.hasLiveTrack()) {
                     console.log('[Camera Hardware] USB Camera attached. Starting stream...');
                     const ok = await usbCamService.start();
-                    if (window.OrionCameraManager) window.OrionCameraManager.setSignal(12, ok);
+                    if (window.OrionCameraManager) {
+                        window.OrionCameraManager.setSignal(6, ok);
+                        window.OrionCameraManager.setSignal(12, ok);
+                    }
                 }
             } else {
                 if (usbCamService.isActive) {
@@ -315,7 +393,10 @@
                 if (!laptopWebcamService.isActive || !laptopWebcamService.hasLiveTrack()) {
                     console.log('[Camera Hardware] Laptop Webcam attached. Starting stream...');
                     const ok = await laptopWebcamService.start();
-                    if (window.OrionCameraManager) window.OrionCameraManager.setSignal(11, ok);
+                    if (window.OrionCameraManager) {
+                        window.OrionCameraManager.setSignal(5, ok);
+                        window.OrionCameraManager.setSignal(11, ok);
+                    }
                 }
             } else {
                 if (laptopWebcamService.isActive) {
@@ -332,21 +413,18 @@
             this.layoutMode = 'grid'; // 'grid', 'hero', 'dual', 'solo'
             this.streamVideos = new Map();
             this.signals = new Map([
-                [1, false], // By default NO SIGNAL (awaiting real hardware / stream)
+                [1, false],
                 [2, false],
                 [3, false],
                 [4, false],
                 [5, false],
                 [6, false],
-                [7, false],
-                [8, false],
-                [9, false],
-                [10, false],
                 [11, false],
                 [12, false]
             ]);
             this.countdowns = new Map();
-            CAMERAS.forEach(c => {
+            const cams = getCamerasList();
+            cams.forEach(c => {
                 this.countdowns.set(c.id, 5);
                 c._countdownSec = 5;
             });
@@ -355,9 +433,11 @@
 
             // Auto-detect & synchronize hardware services with boolean active state
             laptopWebcamService.subscribe(state => {
+                this.setSignal(5, state.isActive);
                 this.setSignal(11, state.isActive);
             });
             usbCamService.subscribe(state => {
+                this.setSignal(6, state.isActive);
                 this.setSignal(12, state.isActive);
             });
         }
@@ -374,7 +454,8 @@
                     usbCamService.handleDisconnected();
                 }
 
-                for (const cam of CAMERAS) {
+                const cams = getCamerasList();
+                for (const cam of cams) {
                     const id = cam.id;
                     const hasSig = this.hasSignal(id);
                     if (hasSig) {
@@ -408,12 +489,20 @@
 
         async _attemptReconnect(id) {
             try {
-                if (id === 11) {
+                if (id === 5 || id === 11) {
                     const ok = await laptopWebcamService.start();
+                    this.setSignal(5, ok);
                     this.setSignal(11, ok);
-                } else if (id === 12) {
+                } else if (id === 6 || id === 12) {
                     const ok = await usbCamService.start();
+                    this.setSignal(6, ok);
                     this.setSignal(12, ok);
+                } else if (id >= 1 && id <= 4) {
+                    const found = await this.scanForFeed(id);
+                    this.setSignal(id, found);
+                    if (found && axisStreams.has(id)) {
+                        axisStreams.get(id).reconnect();
+                    }
                 } else {
                     const found = await this.scanForFeed(id);
                     this.setSignal(id, found);
@@ -447,11 +536,16 @@
 
         hasSignal(camId) {
             const id = parseInt(camId, 10);
-            if (id === 11) {
+            if (id === 5 || id === 11) {
                 return !!(laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2 && laptopWebcamService.hasLiveTrack());
             }
-            if (id === 12) {
+            if (id === 6 || id === 12) {
                 return !!(usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2 && usbCamService.hasLiveTrack());
+            }
+            if (id >= 1 && id <= 4) {
+                const stream = axisStreams.get(id);
+                if (stream && stream.hasLiveFrame()) return true;
+                return this.signals.get(id) ?? false;
             }
             const vid = this.streamVideos.get(id);
             if (vid && vid.readyState >= 2) return true;
@@ -507,16 +601,22 @@
         }
 
         getActiveCamera() {
-            return CAMERAS.find(c => c.id === this.activeCamId) || CAMERAS[0];
+            const cams = (typeof window !== 'undefined' && window.OrionCameraConfig) ? window.OrionCameraConfig.getAllCameras() : CAMERAS;
+            return cams.find(c => c.id === this.activeCamId) || cams[0];
         }
 
         getCameraById(id) {
-            return CAMERAS.find(c => c.id === parseInt(id, 10)) || CAMERAS[0];
+            const num = parseInt(id, 10);
+            if (num === 11) return this.getCameraById(5);
+            if (num === 12) return this.getCameraById(6);
+            const cams = (typeof window !== 'undefined' && window.OrionCameraConfig) ? window.OrionCameraConfig.getAllCameras() : CAMERAS;
+            return cams.find(c => c.id === num) || cams[0];
         }
 
         getCameraByKey(key) {
-            if (!key) return CAMERAS[0];
-            return CAMERAS.find(c => c.key === key || c.alias === key || key.includes(c.key)) || CAMERAS[0];
+            const cams = (typeof window !== 'undefined' && window.OrionCameraConfig) ? window.OrionCameraConfig.getAllCameras() : CAMERAS;
+            if (!key) return cams[0];
+            return cams.find(c => c.key === key || c.alias === key || key.includes(c.key)) || cams[0];
         }
 
         openPopout(camId) {
@@ -558,29 +658,52 @@
         async scanForFeed(camId) {
             const id = parseInt(camId, 10);
 
-            // If Camera 11 (Laptop Webcam)
-            if (id === 11) {
+            // If Laptop Webcam (5 or 11)
+            if (id === 5 || id === 11) {
                 if (laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2) {
+                    this.setSignal(5, true);
                     this.setSignal(11, true);
                     return true;
                 }
                 const started = await laptopWebcamService.start();
+                this.setSignal(5, started);
                 this.setSignal(11, started);
                 return started;
             }
 
-            // If Camera 12 (USB Cam)
-            if (id === 12) {
+            // If USB Cam (6 or 12)
+            if (id === 6 || id === 12) {
                 if (usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2) {
+                    this.setSignal(6, true);
                     this.setSignal(12, true);
                     return true;
                 }
                 const started = await usbCamService.start();
+                this.setSignal(6, started);
                 this.setSignal(12, started);
                 return started;
             }
 
-            // Rover feeds: query backend status
+            // AXIS feeds (1 to 4): query /api/camera/axis/:id/feed_status
+            if (id >= 1 && id <= 4) {
+                try {
+                    const controller = new AbortController();
+                    const timer = setTimeout(() => controller.abort(), 900);
+                    const res = await fetch(`/api/camera/axis/${id}/feed_status`, { signal: controller.signal }).catch(() => null);
+                    clearTimeout(timer);
+                    if (res && res.ok) {
+                        const data = await res.json();
+                        if (data && data.online) {
+                            this.setSignal(id, true);
+                            return true;
+                        }
+                    }
+                } catch (_) {}
+                this.setSignal(id, false);
+                return false;
+            }
+
+            // Fallback status check
             try {
                 const controller = new AbortController();
                 const timer = setTimeout(() => controller.abort(), 800);
@@ -841,10 +964,82 @@
         ctx.restore();
     }
 
+    // Aerospace HUD Overlay for Live AXIS Network Camera Feeds
+    function drawAxisFeedHudOverlay(ctx, cam, now, width, height, axisStream) {
+        ctx.save();
+        const midX = width * 0.5;
+        const midY = height * 0.5;
+
+        // Subtle Reticle Crosshair in center
+        ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(midX - 24, midY); ctx.lineTo(midX - 6, midY);
+        ctx.moveTo(midX + 6, midY); ctx.lineTo(midX + 24, midY);
+        ctx.moveTo(midX, midY - 24); ctx.lineTo(midX, midY - 6);
+        ctx.moveTo(midX, midY + 6); ctx.lineTo(midX, midY + 24);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(midX, midY, 14, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Top live pill badge
+        const badgeW = 230;
+        const badgeH = 20;
+        ctx.fillStyle = 'rgba(8, 47, 73, 0.85)';
+        ctx.fillRect(midX - badgeW / 2, 8, badgeW, badgeH);
+        ctx.strokeStyle = '#0284c7';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(midX - badgeW / 2, 8, badgeW, badgeH);
+
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 9.5px monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`● ${cam.name.toUpperCase()} (LIVE AXIS)`, midX, 18);
+
+        // Bottom left pill: device info
+        const devW = 270;
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(8, height - 26, devW, 18);
+        ctx.strokeStyle = '#334155';
+        ctx.strokeRect(8, height - 26, devW, 18);
+
+        const imgW = (axisStream && axisStream.img && axisStream.img.naturalWidth) || 1280;
+        const imgH = (axisStream && axisStream.img && axisStream.img.naturalHeight) || 720;
+        ctx.fillStyle = '#cbd5e1';
+        ctx.font = '8.5px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(`CAM ${cam.id}: ${cam.short} | ${imgW}x${imgH} @ 30FPS`, 14, height - 17);
+
+        // Bottom right: UTC Timestamp
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'right';
+        ctx.fillText(`UTC: ${new Date(now).toISOString().substring(11, 23)}`, width - 8, height - 8);
+
+        ctx.restore();
+    }
+
     // Scene Renderer for Camera Streams: NO SIM MODES!
     function drawCameraScene(ctx, cam, now, width, height) {
-        // 1. Camera 11: Laptop Webcam
-        if (cam.id === 11) {
+        // 1. AXIS Cameras (1 to 4)
+        if (cam.isAxis || (cam.id >= 1 && cam.id <= 4)) {
+            const axisStream = axisStreams.get(cam.id);
+            if (axisStream && axisStream.hasLiveFrame()) {
+                ctx.save();
+                ctx.drawImage(axisStream.img, 0, 0, width, height);
+                drawAxisFeedHudOverlay(ctx, cam, now, width, height, axisStream);
+                ctx.restore();
+                return;
+            }
+            drawNoSignalScene(ctx, cam, now, width, height);
+            return;
+        }
+
+        // 2. Laptop Webcam (id 5 or 11)
+        if (cam.id === 5 || cam.id === 11) {
             if (laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2) {
                 ctx.save();
                 ctx.drawImage(laptopWebcamService.video, 0, 0, width, height);
@@ -856,8 +1051,8 @@
             return;
         }
 
-        // 2. Camera 12: USB Camera (Test Cam)
-        if (cam.id === 12) {
+        // 3. USB Camera (id 6 or 12)
+        if (cam.id === 6 || cam.id === 12) {
             if (usbCamService.isActive && usbCamService.video && usbCamService.video.readyState >= 2) {
                 ctx.save();
                 ctx.drawImage(usbCamService.video, 0, 0, width, height);
@@ -869,9 +1064,6 @@
             return;
         }
 
-        // 3. Rover Cameras 1-10:
-        // No simulated graphics! If there is no real video stream from the rover camera,
-        // ALWAYS display the authentic Orion Logo NO SIGNAL standby screen with functional reconnect countdown.
         const realVideo = cameraManager.getStreamVideo(cam.id);
         if (realVideo && realVideo.readyState >= 2) {
             ctx.save();
@@ -1047,7 +1239,7 @@
             <div style="display: flex; align-items: center; justify-content: space-between; background: #181818; border-bottom: 1px solid #282828; padding: 3px 8px; height: 28px; box-sizing: border-box; flex-shrink: 0; z-index: 20;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                     <div style="width: 7px; height: 7px; background: ${cam.color}; border-radius: 0px !important;"></div>
-                    <span style="font-weight: 800; font-size: 10px; color: #f8fafc; letter-spacing: 0.5px;">${cam.short}</span>
+                    <span id="single-hud-name" style="font-weight: 800; font-size: 10px; color: #f8fafc; letter-spacing: 0.5px;">${cam.short}</span>
                     <span style="color: #3f3f46;">|</span>
                     <span id="single-hud-dot" style="display: inline-block; width: 6px; height: 6px; border-radius: 0px !important; background: ${initialSig ? '#22c55e' : '#ef4444'};"></span>
                     <span id="single-hud-status" style="font-family: monospace; font-size: 9px; font-weight: 800; color: ${initialSig ? '#22c55e' : '#ef4444'};">${initialSig ? 'LIVE' : 'NO SIGNAL'}</span>
@@ -1070,12 +1262,12 @@
                     <div style="font-family: monospace, sans-serif; font-size: 15px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 18px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
                         NO SIGNAL
                     </div>
-                    <div id="single-reconnect-${cam.id}" data-reconnect-cam="${cam.id}" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
+                    <div id="single-reconnect-${cam.id}" class="single-reconnect-msg" data-reconnect-cam="${cam.id}" style="font-family: monospace, sans-serif; font-size: 8.5px; font-weight: 700; color: #94a3b8; margin-top: 8px; letter-spacing: 0.3px; white-space: nowrap;">
                         Attempting reconnect in ${cam._countdownSec ?? 5}s...
                     </div>
                 </div>
 
-                <div style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15;">
+                <div id="single-role-label" style="position: absolute; bottom: 8px; left: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #cbd5e1; z-index: 15;">
                     ROLE: ${cam.role.toUpperCase()}
                 </div>
                 <div id="single-osd-time" style="position: absolute; bottom: 8px; right: 10px; background: rgba(20, 20, 20, 0.85); border: 1px solid #282828; padding: 2px 6px; font-family: monospace; font-size: 9px; color: #38bdf8; z-index: 15;">
@@ -1107,6 +1299,17 @@
             }
         });
 
+
+        const onSingleCamRenamed = (e) => {
+            if (e.detail && (e.detail.id === cam.id || e.detail.key === cam.key || e.detail.alias === cam.key)) {
+                const hudName = container.querySelector('#single-hud-name');
+                if (hudName) hudName.textContent = e.detail.short || e.detail.name;
+                const roleLabel = container.querySelector('#single-role-label');
+                if (roleLabel) roleLabel.textContent = `ROLE: ${e.detail.role.toUpperCase()}`;
+            }
+        };
+        window.addEventListener('orion-camera-renamed', onSingleCamRenamed);
+
         // Auto-start hardware if Camera 11 or 12
         if (cam.id === 11) {
             laptopWebcamService.start().then(ok => {
@@ -1134,6 +1337,7 @@
 
         container._cleanup = () => {
             unsubSignal();
+            window.removeEventListener('orion-camera-renamed', onSingleCamRenamed);
             if (animId) cancelAnimationFrame(animId);
         };
     }
@@ -1214,7 +1418,7 @@
                 <div style="display: flex; align-items: center; justify-content: space-between; background: #161616; border-bottom: 1px solid #242424; padding: 2px 6px; height: 20px; box-sizing: border-box; flex-shrink: 0; z-index: 5;">
                     <div style="display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap;">
                         <div style="width: 6px; height: 6px; background: ${cam.color}; border-radius: 0px; flex-shrink: 0;"></div>
-                        <span style="font-weight: 800; font-size: 9px; color: #f8fafc;">${cam.short}</span>
+                        <span id="tile-cam-name-${cam.id}" style="font-weight: 800; font-size: 9px; color: #f8fafc;">${cam.short}</span>
                         <span style="font-size: 8px; font-family: monospace; color: #71717a;">${cam.resolution}</span>
                     </div>
 
@@ -1435,8 +1639,17 @@
             telemUnsubs.push(u1, u2);
         }
 
+        const onDeckCamRenamed = (e) => {
+            if (e.detail && e.detail.id) {
+                const nameEl = viewport.querySelector(`#tile-cam-name-${e.detail.id}`);
+                if (nameEl) nameEl.textContent = e.detail.short || e.detail.name;
+            }
+        };
+        window.addEventListener('orion-camera-renamed', onDeckCamRenamed);
+
         container._cleanup = () => {
             unsub();
+            window.removeEventListener('orion-camera-renamed', onDeckCamRenamed);
             if (animFrameId) cancelAnimationFrame(animFrameId);
             telemUnsubs.forEach(u => u && u());
         };

@@ -283,6 +283,7 @@ async function createWindow() {
                             const deletedPopoutBtns = document.querySelectorAll('#btn-single-popout');
                             const deletedSignalBtns = document.querySelectorAll('#btn-single-signal');
                             const deletedCaptureBtns = document.querySelectorAll('#btn-single-snapshot');
+                            const deletedRenameBtns = document.querySelectorAll('#single-btn-rename, .btn-tile-rename, #btn-cam-rename');
                             const hudTimes = Array.from(document.querySelectorAll('#single-hud-time')).map(el => el.textContent.trim());
                             const osdTimes = Array.from(document.querySelectorAll('#single-osd-time')).map(el => el.textContent.trim());
                             const noSigOverlays = document.querySelectorAll('#single-no-signal');
@@ -291,7 +292,7 @@ async function createWindow() {
                             return {
                                 hasFlexibleLayout: Boolean(fl),
                                 frameCount: frames.length,
-                                deletedButtonsPresent: (deletedLargerViewBtns.length + deletedPopoutBtns.length + deletedSignalBtns.length + deletedCaptureBtns.length) > 0,
+                                deletedButtonsPresent: (deletedLargerViewBtns.length + deletedPopoutBtns.length + deletedSignalBtns.length + deletedCaptureBtns.length + deletedRenameBtns.length) > 0,
                                 hudTimeSamples: hudTimes.slice(0, 3),
                                 osdTimeSamples: osdTimes.slice(0, 3),
                                 noSigCount: noSigOverlays.length,
@@ -1325,15 +1326,25 @@ async function createWindow() {
                     const artifactDir = 'C:\\Users\\mkowa\\.gemini\\antigravity\\brain\\186f4c10-013f-4fe5-aee0-4e02ea0957c9';
                     await new Promise(r => setTimeout(r, 4500));
 
-                    console.log('[Test Snapshot] Checking canvas taint and snapshot capture...');
+                    // Clear snapshot storage at start of test for clean validation
+                    await mainWindow.webContents.executeJavaScript(`localStorage.removeItem('notebook-snapshot-storage');`);
+
+                    // 1. TEST SNAPSHOT ON NOT FULL DISPLAY (Flexible Layout Tile in disp_cameras)
+                    console.log('[Test Snapshot] 1. Navigating to disp_cameras (camera deck with AXIS & Test feeds)...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:disp_cameras';
+                    `);
+                    await new Promise(r => setTimeout(r, 4500));
+
+                    console.log('[Test Snapshot] Checking canvas taint and snapshot capture on camera tiles...');
                     const canvasTaintCheck = await mainWindow.webContents.executeJavaScript(`
                         (() => {
-                            const canvases = Array.from(document.querySelectorAll('canvas'));
+                            const canvases = Array.from(document.querySelectorAll('#single-cam-canvas, [id^="tile-canvas-"], .orion-camera-feed-container canvas'));
                             const results = canvases.map((c, i) => {
                                 let tainted = false;
                                 let error = null;
                                 try {
-                                    c.toDataURL();
+                                    c.toDataURL('image/png');
                                 } catch (e) {
                                     tainted = true;
                                     error = e.message;
@@ -1342,7 +1353,7 @@ async function createWindow() {
                                     index: i,
                                     width: c.width,
                                     height: c.height,
-                                    className: c.className,
+                                    id: c.id,
                                     tainted,
                                     error
                                 };
@@ -1352,22 +1363,12 @@ async function createWindow() {
                     `);
                     console.log('[Test Canvas Taint Check]', JSON.stringify(canvasTaintCheck));
 
-                    // Clear snapshot storage at start of test for clean validation
-                    await mainWindow.webContents.executeJavaScript(`localStorage.removeItem('notebook-snapshot-storage');`);
-
-                    // 1. TEST SNAPSHOT ON NOT FULL DISPLAY (Flexible Layout Tile in disp_cameras)
-                    console.log('[Test Snapshot] 1. Navigating to disp_cameras (not full display - 12 camera tiles)...');
-                    await mainWindow.webContents.executeJavaScript(`
-                        window.location.hash = '#/browse/orion.taxonomy:disp_cameras';
-                    `);
-                    await new Promise(r => setTimeout(r, 4000));
-
                     console.log('[Test Snapshot] Taking snapshot from flexible layout tile (not full display)...');
                     const tileSnapResult = await mainWindow.webContents.executeJavaScript(`
                         (async () => {
                             // Find a camera tile frame in flexible layout
                             const frames = Array.from(document.querySelectorAll('.c-so-view'));
-                            const frame = frames.find(f => f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
+                            const frame = frames.find(f => f.textContent.includes('AXIS 1') || f.textContent.includes('cam_axis_1') || f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
                             if (!frame) return { error: 'No camera frame found', count: frames.length };
                             
                             const snapBtn = frame.querySelector('.c-notebook-snapshot-menubutton button, button.icon-camera');
@@ -1418,7 +1419,7 @@ async function createWindow() {
                     const largeViewSnapResult = await mainWindow.webContents.executeJavaScript(`
                         (async () => {
                             const frames = Array.from(document.querySelectorAll('.c-so-view'));
-                            const frame = frames.find(f => f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
+                            const frame = frames.find(f => f.textContent.includes('AXIS 1') || f.textContent.includes('cam_axis_1') || f.textContent.includes('Mast Intel') || f.textContent.includes('cam_mast')) || frames[0];
                             const expandBtn = frame ? frame.querySelector('.icon-items-expand, button[title*="Large"]') : null;
                             if (!expandBtn) return { error: 'expandBtn not found' };
                             
@@ -1491,20 +1492,58 @@ async function createWindow() {
                             const btnEnableWebcam = document.querySelector('#single-enable-webcam-btn');
                             const tileWebcamBtns = document.querySelectorAll('.btn-tile-webcam');
                             const singleSnapBtn = document.querySelector('#single-btn-snapshot');
+                            const singleRenameBtn = document.querySelector('#single-btn-rename');
+                            const tileRenameBtns = document.querySelectorAll('.btn-tile-rename');
                             const noSigOverlay = document.querySelector('#single-no-signal');
-                            const reconnectMsg = document.querySelector('#single-reconnect-msg');
+                            const reconnectMsg = document.querySelector('#single-reconnect-msg, [id*="single-reconnect-"], [data-reconnect-cam], .single-reconnect-msg');
 
                             return {
                                 hasSingleWebcamBtn: Boolean(btnWebcam),
                                 hasSingleEnableWebcamBtn: Boolean(btnEnableWebcam),
                                 tileWebcamBtnCount: tileWebcamBtns.length,
                                 hasSingleSnapBtn: Boolean(singleSnapBtn),
+                                hasCustomRenameBtn: Boolean(singleRenameBtn) || tileRenameBtns.length > 0,
                                 noSigOverlayVisible: noSigOverlay ? noSigOverlay.style.display !== 'none' : false,
                                 reconnectText: reconnectMsg ? reconnectMsg.textContent.trim() : null
                             };
                         })()
                     `);
                     console.log('[Test Buttons Check]', JSON.stringify(testButtonCheck));
+
+                    // Verify Native Open MCT Camera Renaming functionality
+                    console.log('[Test Snapshot] Verifying Native Open MCT camera rename...');
+                    const renameTestResult = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            if (!window.openmct || !window.OrionCameraConfig) return { error: 'OpenMCT or OrionCameraConfig not found' };
+                            const id = { namespace: 'orion.taxonomy', key: 'cam_axis_1' };
+                            const isPersistable = window.openmct.objects.isPersistable(id);
+                            const camObj = await window.openmct.objects.get(id);
+                            const origName = camObj ? camObj.name : 'AXIS 1';
+
+                            // Mutate name natively in Open MCT
+                            window.openmct.objects.mutate(camObj, 'name', 'Mast Science Cam Native');
+                            await window.openmct.objects.save(camObj);
+                            await new Promise(r => setTimeout(r, 600));
+
+                            const configCam = window.OrionCameraConfig.getCameraById(1);
+                            const stored = JSON.parse(localStorage.getItem('orion-camera-custom-names') || '{}');
+                            const hudName = document.querySelector('#single-hud-name') ? document.querySelector('#single-hud-name').textContent.trim() : null;
+
+                            // Revert back for clean state
+                            window.openmct.objects.mutate(camObj, 'name', origName);
+                            await window.openmct.objects.save(camObj);
+
+                            return {
+                                isPersistable,
+                                origName,
+                                nativeMutatedName: camObj.name,
+                                syncedConfigName: configCam.name,
+                                storedName: stored['cam_axis_1'] ? stored['cam_axis_1'].name : null,
+                                hudNameAfterRename: hudName
+                            };
+                        })()
+                    `);
+                    console.log('[Test Camera Rename Result]', JSON.stringify(renameTestResult));
 
                     // Take snapshot via OpenMCT native snapshot menu
                     console.log('[Test Snapshot] Taking snapshot via OpenMCT native snapshot menu on dedicated feed...');
@@ -1668,6 +1707,215 @@ async function createWindow() {
 
                 } catch (err) {
                     console.error('[Test Snapshot Error]', err);
+                }
+                setTimeout(() => {
+                    mainWindow.close();
+                }, 1000);
+            } else if (testMode === 'test_persistence' || testMode === 'persistence') {
+                try {
+                    console.log('[Test Persistence] Waiting for Open MCT initial boot...');
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    console.log('[Test Persistence] PHASE 1: Applying modifications to Layouts, Names, Tabs, and Custom Objects...');
+                    const phase1Result = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            if (!window.openmct) return { error: 'Open MCT not initialized' };
+
+                            // 1. Modify Display Layout (disp_overview)
+                            const overviewId = { namespace: 'orion.taxonomy', key: 'disp_overview' };
+                            const overviewObj = await window.openmct.objects.get(overviewId);
+                            const origOverviewGrid = overviewObj.configuration.layoutGrid ? [...overviewObj.configuration.layoutGrid] : [10, 10];
+                            const origOverviewItems = overviewObj.configuration.items ? [...overviewObj.configuration.items] : [];
+
+                            const newConfig = JSON.parse(JSON.stringify(overviewObj.configuration || {}));
+                            newConfig.layoutGrid = [25, 25];
+                            if (!newConfig.items) newConfig.items = [];
+                            newConfig.items.push({
+                                id: 'persisted_test_item',
+                                composition: 'widget_nav_status',
+                                x: 70,
+                                y: 70,
+                                width: 25,
+                                height: 15
+                            });
+                            window.openmct.objects.mutate(overviewObj, 'configuration', newConfig);
+                            await window.openmct.objects.save(overviewObj);
+
+                            // 2. Rename Camera (cam_axis_1) natively in Open MCT
+                            const camId = { namespace: 'orion.taxonomy', key: 'cam_axis_1' };
+                            const camObj = await window.openmct.objects.get(camId);
+                            const origCamName = camObj ? camObj.name : 'AXIS 1';
+                            window.openmct.objects.mutate(camObj, 'name', 'Persisted Mast Cam AXIS');
+                            await window.openmct.objects.save(camObj);
+
+                            // 3. Rename Display Layout (disp_nav) natively in Open MCT
+                            const navId = { namespace: 'orion.taxonomy', key: 'disp_nav' };
+                            const navObj = await window.openmct.objects.get(navId);
+                            const origNavName = navObj ? navObj.name : 'NAV / AUTONOMY';
+                            window.openmct.objects.mutate(navObj, 'name', 'Persisted Navigation Autonomy Deck');
+                            await window.openmct.objects.save(navObj);
+
+                            // 4. Reorder Tabs in modes_tab
+                            const modesId = { namespace: 'orion.taxonomy', key: 'modes_tab' };
+                            const modesObj = await window.openmct.objects.get(modesId);
+                            const currentComp = await window.openmct.composition.get(modesObj).load();
+                            // Put disp_safety at index 0
+                            const safetyItem = currentComp.find(c => c.key === 'disp_safety') || { namespace: 'orion.taxonomy', key: 'disp_safety' };
+                            const reorderedComp = [safetyItem, ...currentComp.filter(c => c.key !== 'disp_safety')];
+                            window.openmct.objects.mutate(modesObj, 'composition', reorderedComp);
+                            await window.openmct.objects.save(modesObj);
+
+                            // 5. Create a brand new custom object
+                            const customObj = {
+                                identifier: { namespace: 'orion.taxonomy', key: 'custom_operator_disp' },
+                                name: 'Operator Custom Screen',
+                                type: 'layout',
+                                location: 'orion.taxonomy:displays',
+                                composition: [{ namespace: 'orion.taxonomy', key: 'plot_bus_voltage' }],
+                                configuration: {
+                                    layoutGrid: [30, 30],
+                                    items: []
+                                }
+                            };
+                            await window.openmct.objects.save(customObj);
+
+                            await new Promise(r => setTimeout(r, 600));
+
+                            // Verify localStorage state in Phase 1
+                            const storedTaxonomy = JSON.parse(localStorage.getItem('orion_taxonomy_dynamic_objects') || '{}');
+                            const storedComp = JSON.parse(localStorage.getItem('orion_taxonomy_custom_compositions') || '{}');
+                            const storedCamNames = JSON.parse(localStorage.getItem('orion-camera-custom-names') || '{}');
+
+                            return {
+                                success: true,
+                                origCamName,
+                                origNavName,
+                                origOverviewGrid,
+                                hasStoredOverview: Boolean(storedTaxonomy['disp_overview']),
+                                hasStoredCam: Boolean(storedTaxonomy['cam_axis_1']),
+                                hasStoredNav: Boolean(storedTaxonomy['disp_nav']),
+                                hasStoredModes: Boolean(storedTaxonomy['modes_tab']),
+                                hasStoredCustom: Boolean(storedTaxonomy['custom_operator_disp']),
+                                storedCamName: storedCamNames['cam_axis_1'] ? storedCamNames['cam_axis_1'].name : null,
+                                storedModesFirstKey: storedComp['modes_tab'] && storedComp['modes_tab'][0] ? storedComp['modes_tab'][0].key : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Persistence Phase 1 Result]', JSON.stringify(phase1Result));
+
+                    // PHASE 2: Simulate complete app restart by reloading page
+                    console.log('[Test Persistence] PHASE 2: Simulating full app close & restart via window reload...');
+                    await new Promise((resolve) => {
+                        mainWindow.webContents.once('did-finish-load', resolve);
+                        mainWindow.webContents.reload();
+                    });
+                    console.log('[Test Persistence] Reload complete. Waiting for Open MCT rehydration...');
+                    await new Promise(r => setTimeout(r, 3000));
+
+                    const phase2Result = await mainWindow.webContents.executeJavaScript(`
+                        (async () => {
+                            if (!window.openmct) return { error: 'Open MCT rehydration failed' };
+
+                            // 1. Verify Display Layout (disp_overview) persistence
+                            const overviewObj = await window.openmct.objects.get({ namespace: 'orion.taxonomy', key: 'disp_overview' });
+                            const overviewGridMatch = overviewObj && overviewObj.configuration && Array.isArray(overviewObj.configuration.layoutGrid) &&
+                                overviewObj.configuration.layoutGrid[0] === 25 && overviewObj.configuration.layoutGrid[1] === 25;
+                            const overviewItemMatch = overviewObj && overviewObj.configuration && Array.isArray(overviewObj.configuration.items) &&
+                                overviewObj.configuration.items.some(i => i.id === 'persisted_test_item');
+
+                            // 2. Verify Camera Rename (cam_axis_1) persistence
+                            const camObj = await window.openmct.objects.get({ namespace: 'orion.taxonomy', key: 'cam_axis_1' });
+                            const camNameMatch = camObj && camObj.name === 'Persisted Mast Cam AXIS';
+                            const camConfigObj = window.OrionCameraConfig ? window.OrionCameraConfig.getCameraByKey('cam_axis_1') : null;
+                            const camConfigMatch = camConfigObj && camConfigObj.name === 'Persisted Mast Cam AXIS';
+
+                            // 3. Verify Display Layout Rename (disp_nav) persistence
+                            const navObj = await window.openmct.objects.get({ namespace: 'orion.taxonomy', key: 'disp_nav' });
+                            const navNameMatch = navObj && navObj.name === 'Persisted Navigation Autonomy Deck';
+
+                            // 4. Verify Modes Tab Reordering persistence
+                            const modesObj = await window.openmct.objects.get({ namespace: 'orion.taxonomy', key: 'modes_tab' });
+                            const modesComp = await window.openmct.composition.get(modesObj).load();
+                            const modesOrderMatch = modesComp && modesComp.length > 0 && modesComp[0].key === 'disp_safety';
+
+                            // 5. Verify User-Created Object persistence
+                            const customObj = await window.openmct.objects.get({ namespace: 'orion.taxonomy', key: 'custom_operator_disp' });
+                            const customNameMatch = customObj && customObj.name === 'Operator Custom Screen';
+                            const customGridMatch = customObj && customObj.configuration && customObj.configuration.layoutGrid && customObj.configuration.layoutGrid[0] === 30;
+
+                            // PHASE 3: Clean up test keys to leave environment pristine
+                            try {
+                                // Revert camera name
+                                window.openmct.objects.mutate(camObj, 'name', 'AXIS 1');
+                                await window.openmct.objects.save(camObj);
+
+                                // Revert nav layout name
+                                window.openmct.objects.mutate(navObj, 'name', 'NAV / AUTONOMY');
+                                await window.openmct.objects.save(navObj);
+
+                                // Revert overview layout
+                                if (overviewObj && overviewObj.configuration) {
+                                    overviewObj.configuration.layoutGrid = [10, 10];
+                                    overviewObj.configuration.items = (overviewObj.configuration.items || []).filter(i => i.id !== 'persisted_test_item');
+                                    window.openmct.objects.mutate(overviewObj, 'configuration', overviewObj.configuration);
+                                    await window.openmct.objects.save(overviewObj);
+                                }
+
+                                // Revert modes_tab composition
+                                const defaultTabs = [
+                                    { namespace: 'orion.taxonomy', key: 'disp_overview' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_cameras' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_teleop' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_nav' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_manipulator' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_science' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_maintenance' },
+                                    { namespace: 'orion.taxonomy', key: 'disp_safety' },
+                                    { namespace: 'orion.taxonomy', key: 'timeline_mission' }
+                                ];
+                                window.openmct.objects.mutate(modesObj, 'composition', defaultTabs);
+                                await window.openmct.objects.save(modesObj);
+
+                                // Delete custom test object
+                                if (customObj) {
+                                    const provider = window.openmct.objects.getProvider(customObj.identifier);
+                                    if (provider && provider.delete) {
+                                        provider.delete(customObj);
+                                    }
+                                }
+                            } catch (cleanupErr) {
+                                console.warn('[Test Persistence] Cleanup warning:', cleanupErr);
+                            }
+
+                            const allPassed = Boolean(overviewGridMatch && overviewItemMatch && camNameMatch &&
+                                camConfigMatch && navNameMatch && modesOrderMatch && customNameMatch && customGridMatch);
+
+                            return {
+                                allPassed,
+                                overviewGridMatch,
+                                overviewItemMatch,
+                                camNameMatch,
+                                camConfigMatch,
+                                navNameMatch,
+                                modesOrderMatch,
+                                customNameMatch,
+                                customGridMatch,
+                                loadedOverviewGrid: overviewObj ? overviewObj.configuration?.layoutGrid : null,
+                                loadedCamName: camObj ? camObj.name : null,
+                                loadedNavName: navObj ? navObj.name : null,
+                                loadedModesFirstKey: modesComp && modesComp[0] ? modesComp[0].key : null,
+                                loadedCustomName: customObj ? customObj.name : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Persistence Phase 2 Verification Result]', JSON.stringify(phase2Result));
+                    if (phase2Result.allPassed) {
+                        console.log('>>> [SUCCESS] ALL 5 PERSISTENCE VERIFICATION TESTS PASSED! <<<');
+                    } else {
+                        console.error('>>> [FAILURE] SOME PERSISTENCE CHECKS FAILED! <<<', phase2Result);
+                    }
+                } catch (err) {
+                    console.error('[Test Persistence Error]', err);
                 }
                 setTimeout(() => {
                     mainWindow.close();

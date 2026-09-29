@@ -289,18 +289,12 @@
             name: 'Perception (Cameras)',
             location: 'rover',
             children: [
+                'cam_axis_1',
+                'cam_axis_2',
+                'cam_axis_3',
+                'cam_axis_4',
                 'cam_laptop_test',
                 'cam_usb_test',
-                'cam_mast_rgb',
-                'cam_mast_depth',
-                'cam_haz_fl',
-                'cam_haz_fr',
-                'cam_haz_rear',
-                'cam_arm_wrist',
-                'cam_arm_elbow',
-                'cam_science_macro',
-                'cam_science_chamber',
-                'cam_deck_pano',
                 'rover.perception.realsense.alive',
                 'rover.perception.realsense.fps',
                 'rover.perception.realsense.temp',
@@ -308,24 +302,28 @@
                 'rover.perception.video_bitrate'
             ]
         },
-        'cam_laptop_test': { name: 'Laptop Webcam (Test Camera)', location: 'perception', type: 'orion.camera_feed' },
-        'cam_test': { name: 'Laptop Webcam (Test Camera)', location: 'perception', type: 'orion.camera_feed' },
-        'cam_usb_test': { name: 'USB Camera (Test Cam)', location: 'perception', type: 'orion.camera_feed' },
-        'cam_usb': { name: 'USB Camera (Test Cam)', location: 'perception', type: 'orion.camera_feed' },
-        'cam_mast_rgb': { name: 'Mast Intel RealSense D435i RGB', location: 'perception', type: 'orion.camera_feed' },
-        'cam_mast_depth': { name: 'Mast RealSense Depth Sensor', location: 'perception', type: 'orion.camera_feed' },
-        'cam_haz_fl': { name: 'Front Left Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_haz_fr': { name: 'Front Right Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_haz_rear': { name: 'Rear Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_arm_wrist': { name: 'Manipulator Wrist / Gripper Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_arm_elbow': { name: 'Manipulator Elbow Overview Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_science_macro': { name: 'Science Macro Probing Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_science_chamber': { name: 'Science Internal Carousel Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_deck_pano': { name: 'Chassis Top Deck Context Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_mast': { name: 'Mast Intel RealSense D435i RGB', location: 'perception', type: 'orion.camera_feed' },
-        'cam_front': { name: 'Front Left Chassis Hazard Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_arm': { name: 'Manipulator Wrist / Gripper Cam', location: 'perception', type: 'orion.camera_feed' },
-        'cam_science': { name: 'Science Internal Carousel Cam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_axis_1': { name: 'AXIS 1', location: 'perception', type: 'orion.camera_feed' },
+        'cam_axis_2': { name: 'AXIS 2', location: 'perception', type: 'orion.camera_feed' },
+        'cam_axis_3': { name: 'AXIS 3', location: 'perception', type: 'orion.camera_feed' },
+        'cam_axis_4': { name: 'AXIS 4', location: 'perception', type: 'orion.camera_feed' },
+        'cam_laptop_test': { name: 'Laptop Webcam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_test': { name: 'Laptop Webcam', location: 'perception', type: 'orion.camera_feed' },
+        'cam_usb_test': { name: 'USB Camera', location: 'perception', type: 'orion.camera_feed' },
+        'cam_usb': { name: 'USB Camera', location: 'perception', type: 'orion.camera_feed' },
+        'cam_mast_rgb': { name: 'AXIS 1', aliasFor: 'cam_axis_1', location: 'perception', type: 'orion.camera_feed' },
+        'cam_mast_depth': { name: 'AXIS 2', aliasFor: 'cam_axis_2', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_fl': { name: 'AXIS 3', aliasFor: 'cam_axis_3', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_fr': { name: 'AXIS 4', aliasFor: 'cam_axis_4', location: 'perception', type: 'orion.camera_feed' },
+        'cam_haz_rear': { name: 'AXIS 1', aliasFor: 'cam_axis_1', location: 'perception', type: 'orion.camera_feed' },
+        'cam_deck_pano': { name: 'AXIS 2', aliasFor: 'cam_axis_2', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm_wrist': { name: 'AXIS 3', aliasFor: 'cam_axis_3', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm_elbow': { name: 'AXIS 4', aliasFor: 'cam_axis_4', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science_macro': { name: 'AXIS 1', aliasFor: 'cam_axis_1', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science_chamber': { name: 'AXIS 2', aliasFor: 'cam_axis_2', location: 'perception', type: 'orion.camera_feed' },
+        'cam_mast': { name: 'AXIS 1', aliasFor: 'cam_axis_1', location: 'perception', type: 'orion.camera_feed' },
+        'cam_front': { name: 'AXIS 3', aliasFor: 'cam_axis_3', location: 'perception', type: 'orion.camera_feed' },
+        'cam_arm': { name: 'AXIS 2', aliasFor: 'cam_axis_2', location: 'perception', type: 'orion.camera_feed' },
+        'cam_science': { name: 'AXIS 1', aliasFor: 'cam_axis_1', location: 'perception', type: 'orion.camera_feed' },
         'navigation': { name: 'Navigation', location: 'rover' },
         'manipulator': { name: 'Manipulator', location: 'rover' },
         'science': { name: 'Science', location: 'rover' },
@@ -454,12 +452,14 @@
                 if (saved) {
                     const parsed = JSON.parse(saved);
                     Object.keys(parsed).forEach(k => {
-                        if (k !== 'modes_tab' && k !== 'disp_cameras' && !k.startsWith('disp_') && !FOLDERS[k]) {
+                        if (parsed[k]) {
                             dynamicObjects.set(k, parsed[k]);
                         }
                     });
                 }
-            } catch (_) {}
+            } catch (err) {
+                console.warn('[Orion Taxonomy] Failed to load dynamic objects from localStorage:', err);
+            }
 
             const customCompositions = new Map();
             try {
@@ -467,12 +467,14 @@
                 if (savedComp) {
                     const parsedComp = JSON.parse(savedComp);
                     Object.keys(parsedComp).forEach(k => {
-                        if (k !== 'modes_tab' && k !== 'disp_cameras') {
+                        if (parsedComp[k]) {
                             customCompositions.set(k, parsedComp[k]);
                         }
                     });
                 }
-            } catch (_) {}
+            } catch (err) {
+                console.warn('[Orion Taxonomy] Failed to load custom compositions from localStorage:', err);
+            }
 
             function persistTaxonomyStorage() {
                 try {
@@ -483,7 +485,9 @@
                     const compRecord = {};
                     customCompositions.forEach((v, k) => { compRecord[k] = v; });
                     localStorage.setItem(STORAGE_COMPOSITIONS_KEY, JSON.stringify(compRecord));
-                } catch (_) {}
+                } catch (err) {
+                    console.warn('[Orion Taxonomy] Failed to persist taxonomy storage:', err);
+                }
             }
 
             // Object Provider
@@ -598,9 +602,16 @@
                     // 1. Folder objects
                     if (FOLDERS[key]) {
                         const folder = FOLDERS[key];
+                        let camName = folder.name;
+                        if (folder.type === 'orion.camera_feed' && typeof window !== 'undefined' && window.OrionCameraConfig) {
+                            const cObj = window.OrionCameraConfig.getCameraByKey(key);
+                            if (cObj && cObj.name) {
+                                camName = cObj.name;
+                            }
+                        }
                         return Promise.resolve({
                             identifier: identifier,
-                            name: folder.name,
+                            name: camName,
                             type: folder.type || 'folder',
                             location: folder.location ? `${TAXONOMY_NAMESPACE}:${folder.location}` : 'ROOT'
                         });
@@ -1013,35 +1024,65 @@
                         });
                     }
 
-                    // Standalone Separate Flexible Layout for Rover Cameras (12 Feeds)
+                    // Standalone Separate Flexible Layout for Rover Cameras (AXIS 1-4 & Test Feeds)
                     // Native Open MCT flexible layout: each camera has its own independent frame/field
                     // with its own native Open MCT Notebook Snapshot button, larger view, and separate window popout
                     if (key === 'disp_cameras') {
                         return Promise.resolve({
                             identifier: identifier,
-                            name: 'CAMERAS (12 FEEDS)',
+                            name: 'CAMERAS (AXIS & TEST)',
                             type: 'flexible-layout',
                             location: `${TAXONOMY_NAMESPACE}:displays`,
                             composition: [
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_1' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_2' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_3' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_4' },
                                 { namespace: TAXONOMY_NAMESPACE, key: 'cam_laptop_test' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_usb_test' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_rgb' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fl' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fr' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_rear' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_wrist' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_elbow' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_macro' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_chamber' },
-                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_deck_pano' }
+                                { namespace: TAXONOMY_NAMESPACE, key: 'cam_usb_test' }
                             ],
                             configuration: {
                                 rowsLayout: false,
                                 containers: [
                                     {
+                                        id: 'col_axis_left',
+                                        size: 40,
+                                        frames: [
+                                            {
+                                                id: 'frame_axis_1',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_1' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_axis_3',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_3' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        id: 'col_axis_right',
+                                        size: 40,
+                                        frames: [
+                                            {
+                                                id: 'frame_axis_2',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_2' },
+                                                size: 50,
+                                                noFrame: false
+                                            },
+                                            {
+                                                id: 'frame_axis_4',
+                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_axis_4' },
+                                                size: 50,
+                                                noFrame: false
+                                            }
+                                        ]
+                                    },
+                                    {
                                         id: 'col_test',
-                                        size: 18,
+                                        size: 20,
                                         frames: [
                                             {
                                                 id: 'frame_laptop_test',
@@ -1052,97 +1093,6 @@
                                             {
                                                 id: 'frame_usb_test',
                                                 domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_usb_test' },
-                                                size: 50,
-                                                noFrame: false
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        id: 'col_mast',
-                                        size: 18,
-                                        frames: [
-                                            {
-                                                id: 'frame_mast_rgb',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_rgb' },
-                                                size: 50,
-                                                noFrame: false
-                                            },
-                                            {
-                                                id: 'frame_mast_depth',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_mast_depth' },
-                                                size: 50,
-                                                noFrame: false
-
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        id: 'col_haz_front',
-                                        size: 20,
-                                        frames: [
-                                            {
-                                                id: 'frame_haz_fl',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fl' },
-                                                size: 50,
-                                                noFrame: false
-                                            },
-                                            {
-                                                id: 'frame_haz_fr',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_fr' },
-                                                size: 50,
-                                                noFrame: false
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        id: 'col_haz_deck',
-                                        size: 20,
-                                        frames: [
-                                            {
-                                                id: 'frame_haz_rear',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_haz_rear' },
-                                                size: 50,
-                                                noFrame: false
-                                            },
-                                            {
-                                                id: 'frame_deck_pano',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_deck_pano' },
-                                                size: 50,
-                                                noFrame: false
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        id: 'col_arm',
-                                        size: 20,
-                                        frames: [
-                                            {
-                                                id: 'frame_arm_wrist',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_wrist' },
-                                                size: 50,
-                                                noFrame: false
-                                            },
-                                            {
-                                                id: 'frame_arm_elbow',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_arm_elbow' },
-                                                size: 50,
-                                                noFrame: false
-                                            }
-                                        ]
-                                    },
-                                    {
-                                        id: 'col_science',
-                                        size: 20,
-                                        frames: [
-                                            {
-                                                id: 'frame_science_macro',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_macro' },
-                                                size: 50,
-                                                noFrame: false
-                                            },
-                                            {
-                                                id: 'frame_science_chamber',
-                                                domainObjectIdentifier: { namespace: TAXONOMY_NAMESPACE, key: 'cam_science_chamber' },
                                                 size: 50,
                                                 noFrame: false
                                             }
@@ -1299,14 +1249,46 @@
                 },
                 create: function (domainObject) {
                     if (domainObject && domainObject.identifier) {
-                        dynamicObjects.set(domainObject.identifier.key, domainObject);
+                        const k = domainObject.identifier.key;
+                        dynamicObjects.set(k, domainObject);
                         persistTaxonomyStorage();
+                        if (typeof window !== 'undefined' && window.OrionCameraConfig) {
+                            const folder = FOLDERS[k];
+                            if (folder && folder.type === 'orion.camera_feed') {
+                                window.OrionCameraConfig.renameCamera(k, domainObject.name);
+                            }
+                        }
                     }
                     return Promise.resolve(true);
                 },
                 update: function (domainObject) {
                     if (domainObject && domainObject.identifier) {
-                        dynamicObjects.set(domainObject.identifier.key, domainObject);
+                        const k = domainObject.identifier.key;
+                        dynamicObjects.set(k, domainObject);
+                        persistTaxonomyStorage();
+                        if (typeof window !== 'undefined' && window.OrionCameraConfig) {
+                            const folder = FOLDERS[k];
+                            if (folder && folder.type === 'orion.camera_feed') {
+                                window.OrionCameraConfig.renameCamera(k, domainObject.name);
+                            }
+                        }
+                    }
+                    return Promise.resolve(true);
+                },
+                delete: function (domainObject) {
+                    if (domainObject && domainObject.identifier) {
+                        const k = domainObject.identifier.key;
+                        dynamicObjects.delete(k);
+                        customCompositions.delete(k);
+                        persistTaxonomyStorage();
+                    }
+                    return Promise.resolve(true);
+                },
+                remove: function (domainObject) {
+                    if (domainObject && domainObject.identifier) {
+                        const k = domainObject.identifier.key;
+                        dynamicObjects.delete(k);
+                        customCompositions.delete(k);
                         persistTaxonomyStorage();
                     }
                     return Promise.resolve(true);
@@ -1315,6 +1297,31 @@
                     return false;
                 }
             });
+
+            // Bidirectional synchronization: when camera is renamed from OrionCameraConfig, mutate Open MCT object
+            if (typeof window !== 'undefined') {
+                window.addEventListener('orion-camera-renamed', (e) => {
+                    if (e.detail && (e.detail.key || e.detail.id)) {
+                        const k = e.detail.key || (window.OrionCameraConfig && window.OrionCameraConfig.getCameraById(e.detail.id)?.key);
+                        if (!k) return;
+                        let obj = dynamicObjects.get(k);
+                        if (obj) {
+                            if (obj.name !== e.detail.name) {
+                                openmct.objects.mutate(obj, 'name', e.detail.name);
+                            }
+                        } else if (FOLDERS[k] && FOLDERS[k].type === 'orion.camera_feed') {
+                            obj = {
+                                identifier: { namespace: TAXONOMY_NAMESPACE, key: k },
+                                name: e.detail.name,
+                                type: 'orion.camera_feed',
+                                location: `${TAXONOMY_NAMESPACE}:${FOLDERS[k].location || 'perception'}`
+                            };
+                            dynamicObjects.set(k, obj);
+                            persistTaxonomyStorage();
+                        }
+                    }
+                });
+            }
 
             // Composition Provider
             openmct.composition.addProvider({
@@ -1331,28 +1338,22 @@
                 },
                 load: function (domainObject) {
                     const key = domainObject.identifier.key;
-                    if (key === 'modes_tab') {
-                        return Promise.resolve([
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_overview' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_cameras' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_teleop' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_nav' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_science' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_maintenance' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' },
-                            { namespace: TAXONOMY_NAMESPACE, key: 'timeline_mission' }
-                        ]);
-                    }
-                    const folder = FOLDERS[key];
                     const dynamicList = customCompositions.get(key) || [];
 
-                    // Explicit children defined in folder
-                    if (folder && folder.children) {
-                        let base = folder.children.map(childKey => ({
-                            namespace: TAXONOMY_NAMESPACE,
-                            key: childKey
-                        }));
+                    if (key === 'modes_tab') {
+                        let base = (domainObject.composition && Array.isArray(domainObject.composition) && domainObject.composition.length > 0)
+                            ? [...domainObject.composition]
+                            : [
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_overview' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_cameras' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_teleop' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_nav' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_manipulator' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_science' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_maintenance' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'disp_safety' },
+                                { namespace: TAXONOMY_NAMESPACE, key: 'timeline_mission' }
+                            ];
                         dynamicList.forEach(child => {
                             if (!base.some(b => b.namespace === child.namespace && b.key === child.key)) {
                                 base.push(child);
@@ -1361,9 +1362,24 @@
                         return Promise.resolve(base);
                     }
 
-                    // Explicit composition defined in domainObject
+                    // Explicit composition defined in domainObject (user customized or saved layouts/folders/plots)
                     if (domainObject.composition && Array.isArray(domainObject.composition)) {
                         let base = [...domainObject.composition];
+                        dynamicList.forEach(child => {
+                            if (!base.some(b => b.namespace === child.namespace && b.key === child.key)) {
+                                base.push(child);
+                            }
+                        });
+                        return Promise.resolve(base);
+                    }
+
+                    const folder = FOLDERS[key];
+                    // Explicit children defined in folder (baseline defaults)
+                    if (folder && folder.children) {
+                        let base = folder.children.map(childKey => ({
+                            namespace: TAXONOMY_NAMESPACE,
+                            key: childKey
+                        }));
                         dynamicList.forEach(child => {
                             if (!base.some(b => b.namespace === child.namespace && b.key === child.key)) {
                                 base.push(child);
@@ -1402,6 +1418,7 @@
                     if (!parent.composition.some(item => item.namespace === childId.namespace && item.key === childId.key)) {
                         parent.composition.push(childId);
                     }
+                    dynamicObjects.set(key, parent);
                     try {
                         openmct.objects.mutate(parent, 'composition', parent.composition);
                     } catch (_) {}
@@ -1418,6 +1435,7 @@
                     if (parent.composition) {
                         parent.composition = parent.composition.filter(item => !(item.namespace === childId.namespace && item.key === childId.key));
                     }
+                    dynamicObjects.set(key, parent);
                     try {
                         openmct.objects.mutate(parent, 'composition', parent.composition);
                     } catch (_) {}

@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Orion Rover - Camera Stream Feed</title>
+    <script src="orion-camera-config.js"></script>
     <style>
         * {
             box-sizing: border-box;
@@ -205,21 +206,9 @@
     <header class="camera-header">
         <div class="header-left">
             <div id="cam-live-dot" class="cam-dot"></div>
-            <div id="cam-name-text" class="cam-title">MAST INTEL REALSENSE D435i</div>
-            <div id="cam-role-badge" class="cam-badge">PERCEPTION / SLAM</div>
+            <div id="cam-name-text" class="cam-title">AXIS 1</div>
+            <div id="cam-role-badge" class="cam-badge">CAMERA 1</div>
             <select id="cam-selector" class="btn-hud" style="font-family: sans-serif; cursor: pointer; padding: 2px 4px;">
-                <option value="1">CAM 1: MAST RGB</option>
-                <option value="2">CAM 2: MAST DEPTH</option>
-                <option value="3">CAM 3: HAZCAM FL</option>
-                <option value="4">CAM 4: HAZCAM FR</option>
-                <option value="5">CAM 5: HAZCAM REAR</option>
-                <option value="6">CAM 6: ARM WRIST</option>
-                <option value="7">CAM 7: ARM ELBOW</option>
-                <option value="8">CAM 8: SCI MACRO</option>
-                <option value="9">CAM 9: SCI CHAMBER</option>
-                <option value="10">CAM 10: DECK PANO</option>
-                <option value="11">CAM 11: LAPTOP WEBCAM (TEST)</option>
-                <option value="12">CAM 12: USB CAMERA (TEST)</option>
             </select>
         </div>
 
@@ -266,25 +255,26 @@
     </main>
 
     <script>
-        const CAMERAS = [
-            { id: 1, key: 'mast_rgb', alias: 'mast', name: 'Mast Intel RealSense D435i RGB', short: 'MAST RGB', resolution: '1920x1080', role: 'Perception / SLAM' },
-            { id: 2, key: 'mast_depth', alias: 'depth', name: 'Mast RealSense Depth Sensor', short: 'MAST DEPTH', resolution: '1280x720', role: 'Disparity / 3D Mapping' },
-            { id: 3, key: 'haz_fl', alias: 'front', name: 'Front Left Chassis Hazard Cam', short: 'HAZCAM FL', resolution: '1280x720', role: 'Mobility / Obstacle Left' },
-            { id: 4, key: 'haz_fr', alias: 'fr', name: 'Front Right Chassis Hazard Cam', short: 'HAZCAM FR', resolution: '1280x720', role: 'Mobility / Obstacle Right' },
-            { id: 5, key: 'haz_rear', alias: 'rear', name: 'Rear Chassis Hazard Cam', short: 'HAZCAM REAR', resolution: '1280x720', role: 'Reverse / Tether Safety' },
-            { id: 6, key: 'arm_wrist', alias: 'arm', name: 'Manipulator Wrist / Gripper Cam', short: 'ARM WRIST', resolution: '1280x720', role: 'Inspection / Grasping' },
-            { id: 7, key: 'arm_elbow', alias: 'elbow', name: 'Manipulator Elbow Overview Cam', short: 'ARM ELBOW', resolution: '1280x720', role: 'Kinematics / Collision Guard' },
-            { id: 8, key: 'sci_macro', alias: 'macro', name: 'Science Macro Probing Cam', short: 'SCI MACRO', resolution: '1920x1080', role: 'Regolith / Drill Core' },
-            { id: 9, key: 'sci_chamber', alias: 'science', name: 'Science Internal Carousel Cam', short: 'SCI CHAMBER', resolution: '1280x720', role: 'Sample Carousel / Reagents' },
-            { id: 10, key: 'deck_pano', alias: 'pano', name: 'Chassis Top Deck Context Cam', short: 'DECK PANO', resolution: '1920x1080', role: 'Situational Awareness / 360' },
-            { id: 11, key: 'cam_laptop_test', alias: 'test', name: 'Laptop Webcam (Test Camera)', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', isTestCam: true },
-            { id: 12, key: 'cam_usb_test', alias: 'usb', name: 'USB Camera (Test Cam)', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', isTestCam: true }
-        ];
+        const CAMERAS = (window.OrionCameraConfig && window.OrionCameraConfig.getAllCameras)
+            ? window.OrionCameraConfig.getAllCameras()
+            : [
+                { id: 1, key: 'cam_axis_1', alias: 'cam_mast_rgb', defaultName: 'AXIS 1', name: 'AXIS 1', short: 'AXIS 1', resolution: '1280x720', role: 'Camera 1', isAxis: true },
+                { id: 2, key: 'cam_axis_2', alias: 'cam_mast_depth', defaultName: 'AXIS 2', name: 'AXIS 2', short: 'AXIS 2', resolution: '1280x720', role: 'Camera 2', isAxis: true },
+                { id: 3, key: 'cam_axis_3', alias: 'cam_haz_fl', defaultName: 'AXIS 3', name: 'AXIS 3', short: 'AXIS 3', resolution: '1280x720', role: 'Camera 3', isAxis: true },
+                { id: 4, key: 'cam_axis_4', alias: 'cam_haz_fr', defaultName: 'AXIS 4', name: 'AXIS 4', short: 'AXIS 4', resolution: '1280x720', role: 'Camera 4', isAxis: true },
+                { id: 5, key: 'cam_laptop_test', alias: 'cam_test', defaultName: 'Laptop Webcam', name: 'Laptop Webcam', short: 'LAPTOP CAM', resolution: '1280x720', role: 'Operator Test Feed / Webcam', isTestCam: true },
+                { id: 6, key: 'cam_usb_test', alias: 'cam_usb', defaultName: 'USB Camera', name: 'USB Camera', short: 'USB CAM', resolution: '1280x720', role: 'Operator Test Feed / USB', isTestCam: true }
+            ];
 
         // Parse camera parameter from URL (?cam=1, ?cam=2, ?cam=mast, etc.)
         const params = new URLSearchParams(window.location.search);
-        let camParam = params.get('cam') || '1';
-        let activeCam = CAMERAS.find(c => String(c.id) === camParam || c.key.toLowerCase() === camParam.toLowerCase() || (c.alias && c.alias.toLowerCase() === camParam.toLowerCase())) || CAMERAS[0];
+        let camParam = (params.get('cam') || '1').toLowerCase();
+        function resolveCamera(p) {
+            if (p === '11' || p === 'test') return CAMERAS.find(c => c.id === 5) || CAMERAS[4];
+            if (p === '12' || p === 'usb') return CAMERAS.find(c => c.id === 6) || CAMERAS[5];
+            return CAMERAS.find(c => String(c.id) === p || c.key.toLowerCase() === p || (c.alias && c.alias.toLowerCase() === p) || (c.short && c.short.toLowerCase() === p) || (c.name && c.name.toLowerCase() === p)) || CAMERAS[0];
+        }
+        let activeCam = resolveCamera(camParam);
 
         const canvas = document.getElementById('camera-stream-canvas');
         const ctx = canvas.getContext('2d');
@@ -303,6 +293,18 @@
         const btnSnapshot = document.getElementById('btn-snapshot');
         const toast = document.getElementById('snapshot-toast');
 
+        function populateSelector() {
+            selectEl.innerHTML = '';
+            CAMERAS.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = String(c.id);
+                opt.textContent = `${c.name} (${c.resolution})`;
+                selectEl.appendChild(opt);
+            });
+            selectEl.value = String(activeCam.id);
+        }
+        populateSelector();
+
         function setCamera(cam) {
             activeCam = cam;
             document.title = `Orion Rover - ${cam.name} Feed`;
@@ -314,16 +316,29 @@
 
         setCamera(activeCam);
 
+        window.addEventListener('orion-camera-renamed', (e) => {
+            if (e.detail) {
+                const updated = e.detail;
+                if (updated.id === activeCam.id) {
+                    setCamera(updated);
+                }
+                populateSelector();
+            }
+        });
+
         selectEl.addEventListener('change', async (e) => {
             const chosen = CAMERAS.find(c => String(c.id) === e.target.value);
             if (chosen) {
                 stopWebcam();
+                stopAxisStream();
                 hasSignal = false;
                 reconnectCountdown = 5;
                 setCamera(chosen);
                 updateSignalUI();
-                if (chosen.id === 11 || chosen.id === 12) {
+                if (chosen.id === 5 || chosen.id === 6 || chosen.id === 11 || chosen.id === 12) {
                     await startWebcam();
+                } else if (chosen.isAxis || (chosen.id >= 1 && chosen.id <= 4)) {
+                    startAxisStream(chosen.id);
                 } else {
                     await scanFeed();
                 }
@@ -528,10 +543,10 @@
                 }
 
                 const { laptopDevice, usbDevice } = await enumerateCameraDevices();
-                const targetDevice = (activeCam.id === 12) ? usbDevice : laptopDevice;
+                const targetDevice = (activeCam.id === 6 || activeCam.id === 12) ? usbDevice : laptopDevice;
 
                 if (!targetDevice || !targetDevice.deviceId) {
-                    throw new Error(activeCam.id === 12 ? 'External USB camera not detected (connect USB camera)' : 'Laptop webcam not detected');
+                    throw new Error((activeCam.id === 6 || activeCam.id === 12) ? 'External USB camera not detected (connect USB camera)' : 'Laptop webcam not detected');
                 }
 
                 if (webcamStream) {
@@ -604,7 +619,42 @@
             updateSignalUI();
         }
 
-        if (activeCam.id === 11 || activeCam.id === 12) {
+        // AXIS Network Camera Stream Handler
+        let axisImg = null;
+        let isAxisActive = false;
+
+        function startAxisStream(camId) {
+            stopAxisStream();
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                hasSignal = true;
+                isAxisActive = true;
+                reconnectCountdown = 5;
+                updateSignalUI();
+            };
+            img.onerror = () => {
+                hasSignal = false;
+                isAxisActive = false;
+                updateSignalUI();
+            };
+            img.src = `/api/camera/axis/${camId}/stream`;
+            axisImg = img;
+        }
+
+        function stopAxisStream() {
+            if (axisImg) {
+                axisImg.onload = null;
+                axisImg.onerror = null;
+                axisImg.src = '';
+                axisImg = null;
+            }
+            isAxisActive = false;
+        }
+
+        if (activeCam.isAxis || (activeCam.id >= 1 && activeCam.id <= 4)) {
+            startAxisStream(activeCam.id);
+        } else if (activeCam.id === 5 || activeCam.id === 6 || activeCam.id === 11 || activeCam.id === 12) {
             startWebcam().catch(() => {});
         }
 
@@ -612,7 +662,7 @@
         if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
             navigator.mediaDevices.addEventListener('devicechange', async () => {
                 const { laptopDevice, usbDevice } = await enumerateCameraDevices();
-                const targetDevice = (activeCam.id === 12) ? usbDevice : laptopDevice;
+                const targetDevice = (activeCam.id === 6 || activeCam.id === 12) ? usbDevice : laptopDevice;
                 if (targetDevice) {
                     if (!isWebcamActive || !hasLiveTrack()) {
                         console.log('[Webcam Popout] Target device detected, starting...');
@@ -633,11 +683,31 @@
 
         async function scanFeed() {
             if (hasSignal) return;
-            if (activeCam.id === 11 || activeCam.id === 12) {
+            if (activeCam.id === 5 || activeCam.id === 6 || activeCam.id === 11 || activeCam.id === 12) {
                 const ok = await startWebcam();
                 if (ok) {
                     reconnectCountdown = 5;
                 }
+                return;
+            }
+            if (activeCam.isAxis || (activeCam.id >= 1 && activeCam.id <= 4)) {
+                try {
+                    const res = await fetch(`/api/camera/axis/${activeCam.id}/feed_status`).catch(() => null);
+                    if (res && res.ok) {
+                        const data = await res.json();
+                        if (data && data.online) {
+                            hasSignal = true;
+                            isAxisActive = true;
+                            reconnectCountdown = 5;
+                            updateSignalUI();
+                            if (axisImg) {
+                                axisImg.src = `/api/camera/axis/${activeCam.id}/stream?t=` + Date.now();
+                            } else {
+                                startAxisStream(activeCam.id);
+                            }
+                        }
+                    }
+                } catch (_) {}
                 return;
             }
             try {
@@ -686,11 +756,40 @@
             const now = Date.now();
             osdTime.textContent = new Date(now).toISOString();
 
+            if (isAxisActive && axisImg && axisImg.complete && axisImg.naturalWidth > 0) {
+                ctx.drawImage(axisImg, 0, 0, 1280, 720);
+
+                // Top pill badge
+                ctx.fillStyle = 'rgba(8, 47, 73, 0.85)';
+                ctx.fillRect(640 - 115, 12, 230, 22);
+                ctx.strokeStyle = '#0284c7';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(640 - 115, 12, 230, 22);
+                ctx.fillStyle = '#38bdf8';
+                ctx.font = 'bold 10px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(`● LIVE ${activeCam.name.toUpperCase()}`, 640, 23);
+
+                // Center Reticle Crosshair
+                ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+                ctx.lineWidth = 1.2;
+                ctx.beginPath();
+                ctx.moveTo(640 - 30, 360); ctx.lineTo(640 - 8, 360);
+                ctx.moveTo(640 + 8, 360); ctx.lineTo(640 + 30, 360);
+                ctx.moveTo(640, 360 - 30); ctx.lineTo(640, 360 - 8);
+                ctx.moveTo(640, 360 + 8); ctx.lineTo(640, 360 + 30);
+                ctx.stroke();
+
+                requestAnimationFrame(drawFrame);
+                return;
+            }
+
             if (isWebcamActive && webcamVideo && webcamVideo.readyState >= 2) {
                 ctx.drawImage(webcamVideo, 0, 0, 1280, 720);
 
                 // Top pill badge
-                const isUsb = activeCam.id === 12;
+                const isUsb = activeCam.id === 6 || activeCam.id === 12;
                 ctx.fillStyle = isUsb ? 'rgba(8, 51, 68, 0.85)' : 'rgba(6, 78, 59, 0.85)';
                 ctx.fillRect(640 - 105, 12, 210, 22);
                 ctx.strokeStyle = isUsb ? '#06b6d4' : '#10b981';

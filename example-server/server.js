@@ -12,6 +12,7 @@ var HistoryServer = require('./history-server');
 var StaticServer = require('./static-server');
 var createMqttBridge = require('./mqtt-bridge');
 var TelemetryGateway = require('./telemetry-gateway');
+var AxisCameraProxy = require('./axis-camera-proxy');
 
 function createServer() {
     var app = express();
@@ -27,6 +28,9 @@ function createServer() {
     var gateway = new TelemetryGateway({
         isSimMode: isSimMode
     });
+
+    var axisProxy = new AxisCameraProxy();
+    axisProxy.registerRoutes(app);
 
     var spacecraft = new Spacecraft();
     var realtimeServer = new RealtimeServer(spacecraft, gateway);
@@ -93,8 +97,22 @@ function createServer() {
     });
 
     // Camera feed status endpoint (scanned by camera components)
-    app.get('/api/camera/:id/feed_status', function (req, res) {
+    app.get('/api/camera/:id/feed_status', async function (req, res) {
         var camId = parseInt(req.params.id, 10);
+        if (camId >= 1 && camId <= 4) {
+            var online = await axisProxy.isCameraOnline(camId);
+            return res.json({
+                id: camId,
+                name: 'AXIS ' + camId,
+                online: online,
+                status: online ? 'LIVE' : 'NO_SIGNAL',
+                ip: axisProxy.config.ip,
+                resolution: axisProxy.config.resolution,
+                message: online ? 'Axis hardware stream active' : 'No signal from camera at ' + axisProxy.config.ip,
+                timestamp: Date.now()
+            });
+        }
+
         res.json({
             id: camId,
             online: false,
