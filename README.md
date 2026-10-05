@@ -8,8 +8,9 @@
     <img src="https://img.shields.io/badge/Open%20MCT-v4.6.0-004c86?style=flat-square&logo=nasa&logoColor=white" alt="Open MCT" />
     <img src="https://img.shields.io/badge/Architecture-NASA--STD--3001-1e293b?style=flat-square" alt="NASA-STD-3001" />
     <img src="https://img.shields.io/badge/Power%20Bus-20.16V%20Nominal%20(5S)-10b981?style=flat-square" alt="Power Bus" />
-    <img src="https://img.shields.io/badge/Cameras-12x%20Mosaic%20Feeds-38bdf8?style=flat-square" alt="12x Cameras" />
+    <img src="https://img.shields.io/badge/Cameras-AXIS%20F34%20%2B%20Test%20Feeds-38bdf8?style=flat-square" alt="AXIS & Test Cameras" />
     <img src="https://img.shields.io/badge/Comms-5GHz%20Wi--Fi%20RF-f59e0b?style=flat-square" alt="5GHz Comms" />
+    <img src="https://img.shields.io/badge/Persistence-Native%20Open%20MCT-10b981?style=flat-square" alt="Persistence" />
     <img src="https://img.shields.io/badge/Runtime-Zero--Install%20Portable-8b5cf6?style=flat-square" alt="Zero-Install" />
   </p>
 </div>
@@ -28,6 +29,8 @@ Built on top of the **NASA Open MCT** framework, the station enforces strict **N
 * **Factual Telemetry Only**: Status indicators strictly reflect verified telemetry (`[B1: OK]` when link active, `[B1: ---]` when unreceived).
 * **Tabular Monospace Typography**: Monospace numeric streams prevent character-width jitter during high-frequency sensor updates.
 * **Decoupled Clocks**: All telemetry displays, graphs, LAD tables, and logs stream continuously on the **UTC Real Time Clock**, while competition task timelines operate on independent **Mission Elapsed Time (MET)** starting from `0` on operator command.
+* **Full Session Persistence**: Custom display layouts, tab order in `modes_tab`, grid item positions, and in-place camera names automatically persist across sessions via Open MCT `localStorage` synchronization hooks.
+* **AXIS F34 Network Vision**: High-speed LAN proxy integration with the AXIS F34 multi-sensor unit, 5s grace period, 4.5s freeze watchdog, and repeating 5s force reconnect loop.
 
 ---
 
@@ -60,25 +63,63 @@ Factual **20.1V – 20.2V** nominal operating plateau monitoring with individual
 
 ---
 
-### 4. 12-Camera Mosaic Layout, Dual Test Cameras & Reconnect Watchdog
-Integrated **Flexible Layout** tab (`CAMERAS (12 FEEDS)` / `disp_cameras`) within Operating Modes and Rover Displays. Features 10 rover operational feeds plus dedicated operator test feeds for the **Laptop Built-in Webcam** (`cam_laptop_test`) and an external **USB Camera** (`cam_usb_test`):
-- **10 Rover Operational Feeds**: Mast RGB, Mast Depth, Hazcams (Front L/R, Rear), 360 Deck Pano, Manipulator Wrist & Elbow, Science Micro Imager & Internal Chamber.
-- **2 Operator Test Feeds**:
-  - **Laptop Webcam (Test Camera)**: Auto-negotiated live camera feed with green telemetry HUD (`#10b981`).
+### 4. AXIS F34 Network Cameras, Dual Test Feeds & Repeating Reconnect Watchdog
+Integrated **Flexible Layout** tab (`CAMERAS (12 FEEDS)` / `disp_cameras`) within Operating Modes and Rover Displays. Features live physical **AXIS F34 Network Cameras**, rover operational feeds, and dedicated operator test feeds for the **Laptop Built-in Webcam** (`cam_laptop_test`) and an external **USB Camera** (`cam_usb_test`):
+- **AXIS F34 Multi-Sensor Network Camera Integration**:
+  - Connects directly to the rover's **AXIS F34 4-sensor main unit** over high-speed Ethernet (link-local address `169.254.186.98`).
+  - **Automatic Network Discovery**: The gateway performs SSDP M-SEARCH broadcasts over `169.254.255.255:1900` to automatically locate and bind the AXIS unit on the local subnet without hardcoded configuration.
+  - **High-Throughput MJPEG Proxy**: Real-time HTTP MJPEG streaming via `/api/camera/axis/:id/stream` (standard `multipart/x-mixed-replace; boundary=myboundary`).
+  - **In-Memory Stream Caching**: The gateway tracks active stream consumers to suppress background snapshot polling on the AXIS F34 embedded CPU while live video is playing.
+  - **Physical Sensor Mapping**:
+    - **Port 2 (`AXIS 2`)**: Live 30 FPS high-definition feed.
+    - **Port 3 (`AXIS 3`)**: Live 30 FPS high-definition feed.
+    - **Ports 1 & 4**: Unpopulated sensor bays (gracefully identified and held in standby).
+- **Local Operator Test Feeds**:
+  - **Laptop Webcam (Test Camera)**: WebRTC auto-negotiated live camera feed with green telemetry HUD (`#10b981`).
   - **USB Camera (Test Cam)**: External plug-and-play USB video feed with dedicated cyan HUD overlay (`#06b6d4`) and fail-safe device detection.
-- **Universal Orion Standby & Reconnect Watchdog**: Whenever any camera feed is offline or unlinked, the display shows the authentic Orion logo screen (dark `#0a0a0a` grid, centered Orion VI insignia, red `NO SIGNAL` box) and an active countdown timer (`Attempting reconnect in Xs...`). At 0s, the system automatically triggers a functional stream discovery / hardware restart, resetting the cycle if still offline.
-- **Instant Snapshot Export**: Real-time snapshot buttons (`📸 SNAPSHOT`) on the flexible camera deck, single enlarged camera view, and standalone popout window capture full-resolution PNG frames, store them directly in the Open MCT Notebook snapshot drawer (`notebook-snapshot-storage`), and trigger browser download.
+- **10 Rover Operational Feeds**: Mast RGB, Mast Depth, Hazcams (Front L/R, Rear), 360 Deck Pano, Manipulator Wrist & Elbow, Science Micro Imager & Internal Chamber.
+- **5-Second Grace Period Before No Signal**:
+  - When a camera stream drops, loses network packets, or disconnects, the display does NOT immediately flash black or trigger an alarm.
+  - The last valid video frame remains visible and frozen for a **5-second grace period** to absorb momentary network jitter.
+- **Repeating 5s Force Reconnect Loop**:
+  - Once the 5s grace period expires, the display transitions to the authentic Orion standby screen (dark `#0a0a0a` grid, centered Orion VI insignia, red `NO SIGNAL` box, live UTC timestamp).
+  - An active countdown timer displays: `"Attempting reconnect in 5s..."` counting down each second.
+  - At count 0s, the system executes an active **FORCE RECONNECT**: destroying the existing socket/image element, issuing a fresh cache-busting connection request (`?reconnect=true&t=...`), and re-probing the camera gateway.
+  - If the camera is still offline, the 5s countdown resets and repeats indefinitely until link recovery.
+  - As soon as valid camera frames resume, the `NO SIGNAL` overlay immediately disappears and live video playback resumes.
+- **4.5-Second Stream Freeze Watchdog**:
+  - Frame arrival rates are continuously monitored on active feeds.
+  - If video frames stall for longer than 4.5 seconds (video freeze), the watchdog detects the stall, tears down the hung connection, and initiates the 5s recovery sequence.
+- **Native Open MCT Camera Renaming**:
+  - Operators can rename any camera directly inside Open MCT using native object properties (right-click -> Edit in tree or inspector).
+  - Custom camera names are automatically saved to `localStorage` under `orion-camera-custom-names` and persist across restarts.
+- **Instant Snapshot Export**: Real-time snapshot buttons (`📸 SNAPSHOT`) on camera tiles, enlarged views, and standalone popout windows (`camera-view.html?id=X`) capture full-resolution PNG frames into the Open MCT Notebook snapshot drawer (`notebook-snapshot-storage`) and trigger browser downloads.
 
-![12-Camera Mosaic Layout in Rover Displays](docs/images/screenshot-12-cameras-flexible-layout-mixed.png)
+![Live Camera Feeds in Modes Tab](docs/images/screenshot-modes-tab-cameras-live.png)
 
 <p align="center">
-  <img src="docs/images/screenshot-camera-usb-clean.png" alt="USB Test Camera Clean Feed" width="48%" />
-  <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Orion Logo Standby Scene with Reconnect Countdown" width="48%" />
+  <img src="docs/images/screenshot-camera-axis-2-live.png" alt="AXIS 2 Live Camera Feed" width="48%" />
+  <img src="docs/images/screenshot-camera-axis-2-popout.png" alt="AXIS 2 Standalone Popout Window" width="48%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/screenshot-camera-grace-period-1s.png" alt="5-Second Grace Period Holding Last Frame" width="48%" />
+  <img src="docs/images/screenshot-camera-popout-nosignal.png" alt="Orion Standby Scene with Repeating Reconnect Countdown" width="48%" />
 </p>
 
 ---
 
-### 5. 5GHz RF Comms & Dedicated Diagnostics
+### 5. Native User Layout, Tab Ordering & Camera Name Persistence
+All operator customizations made inside Open MCT persist automatically across browser refreshes, application restarts, and system reboots without requiring external database setup:
+- **Display Layout Grids & Coordinates**: Modifying layout item positions, dimensions, frame borders, or adding telemetry alphanumerics and plots persists via `orion_taxonomy_dynamic_objects`.
+- **Custom Displays & Objects**: Newly created user displays, custom plots, and layouts created through the `+ Create` menu survive restarts and remain anchored in the object tree.
+- **Tab Ordering in Operating Modes**: Any reordering or composition updates in the master `modes_tab` container persist in `orion_taxonomy_custom_compositions`.
+- **Camera In-Place Renaming**: Custom camera labels edited via Open MCT object properties are preserved via `orion-camera-custom-names`.
+- **Mission Activity Schedules**: Custom task milestones, durations, and swimlane assignments configured in the in-app timeline editor persist in `orion_timeline_tasks_config`.
+
+---
+
+### 6. 5GHz RF Comms & Dedicated Diagnostics
 Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, packet loss) with real-time health indicator and detached popout diagnostics window (`antenna-details.html`).
 
 <p align="center">
@@ -87,7 +128,7 @@ Live wireless transceiver link metrics (RSSI, SNR, downlink/uplink throughput, p
 
 ---
 
-### 6. Native Open MCT Timelines, Decoupled Real-Time Clock & Pure Per-Mission MET
+### 7. Native Open MCT Timelines, Decoupled Real-Time Clock & Pure Per-Mission MET
 Full integration with native NASA Open MCT timeline engines, featuring authentic swimlane visuals, zero-drift activity anchors, decoupled Real Time Clock operation, independent per-task MET timers, separate overall mission MET, and zero-code in-app timeline customization:
 
 * **Decoupled Real Time Clock for Telemetry & Graphs**: All telemetry graphs (`Main 20V Bus & Pack Voltages`, `Pitch & Roll Attitude Trend`, `Drive Motor Currents`), display layouts (`disp_overview`, `disp_nav`, `disp_teleop`, etc.), LAD tables, and live logs run continuously on the **UTC Real Time Clock** (`local` clock, `utc` time system). Task state changes (pausing, stopping, resetting) never freeze or disrupt real-time telemetry streaming.
@@ -128,7 +169,7 @@ Full integration with native NASA Open MCT timeline engines, featuring authentic
 
 ---
 
-### 7. Rover MQTT Live System Logs Console (`HEALTH / OVERVIEW`)
+### 8. Rover MQTT Live System Logs Console (`HEALTH / OVERVIEW`)
 A dedicated, real-time aerospace logging terminal embedded directly into the master **HEALTH / OVERVIEW** display layout (`disp_overview`) and available as a standalone Open MCT domain object (`rover_logs_console`).
 
 * **Live Ingestion Pipeline**: Ingests streaming text and JSON log messages transmitted from the rover over MQTT (default topic `rover/logs/#`, configurable via `MQTT_LOG_TOPIC` environment variable).
@@ -143,7 +184,7 @@ A dedicated, real-time aerospace logging terminal embedded directly into the mas
 
 ---
 
-### 8. Realtime Telemetry Snapshot & Open Mode Modal Overlay
+### 9. Realtime Telemetry Snapshot & Open Mode Modal Overlay
 Direct capture and inspection of operational displays via the integrated Open MCT Notebook snapshot system:
 - **Zero-Clipping Flex Layout**: Proper CSS flexbox dimensions preventing the `.c-overlay__button-bar` (`Done` button) from being pushed off-screen.
 - **Full-Fidelity Base64 Rendering**: High-contrast, sharp telemetry snapshot inspection with active annotation tools (`#snap-annotation`), reticle alignment, and one-click PNG / JPG direct exports compliant with NASA-STD-3001 ground operations.
@@ -222,7 +263,8 @@ flowchart TD
             B4["Pack 4 (5S Li-ion)"]
             Bus["20V DC Main Power Bus"]
         end
-        Cams["10x Downlink Video Cameras"]
+        AxisF34["AXIS F34 Multi-Sensor Unit (169.254.186.98)\nPorts 2 & 3: Live 30 FPS Streams"]
+        LocalCams["Local Test Feeds (Webcam / USB)"]
         Nav["Autonomous Nav, IMU & RTAB-Map"]
         Arm["6-DoF Manipulator"]
         LogsNode["Rover Logging Daemon"]
@@ -237,11 +279,13 @@ flowchart TD
     subgraph GCS_Backend ["Ground Station Gateway (Node.js/Express :8088)"]
         Bridge["MQTT TCP Bridge (mqtt-bridge.js)"]
         Gateway["Telemetry Gateway & Ring Buffers"]
+        AxisProxy["AXIS MJPEG Proxy & SSDP Gateway (/api/camera/axis/:id/stream)"]
         WSServer["WebSocket Realtime Feed (/realtime)"]
         WSBridge["WebSocket MQTT Bridge (/mqtt-bridge)"]
         HTTPServer["Static & Historical REST API (/history, /api)"]
         
         Broker <==>|"TCP Socket"| Bridge
+        AxisF34 <==>|"Ethernet MJPEG / SSDP"| AxisProxy
         Bridge --> Gateway
         Gateway --> WSServer
         Bridge --> WSBridge
@@ -266,11 +310,12 @@ flowchart TD
 
         subgraph CustomPlugins ["Custom Orion Plugins"]
             P_Batt["OrionBatteryPlugin (Top HUD & Health)"]
-            P_Cam["OrionCameraMosaicPlugin (Flexible Layout)"]
+            P_Cam["OrionCameraMosaicPlugin (Flexible Layout & Watchdog)"]
             P_RF["OrionAntennaPlugin (5GHz Signal)"]
             P_3D["OrionModelPlugin (Three.js 3D Rover)"]
             P_Exc["OrionExceptionEngine (Master Caution/Warn)"]
             P_Modes["OrionModesPlugin (Tabbed Operating Layouts)"]
+            P_Persist["Native Persistence Hooks (localStorage: layouts, compositions, names)"]
         end
 
         subgraph SecondaryWindows ["Independent Windows"]
@@ -282,6 +327,9 @@ flowchart TD
         WSServer <==>|"WebSocket"| CustomPlugins
         WSBridge <==>|"WebSocket"| P_Batt
         WSBridge <==>|"WebSocket"| LogsView
+        AxisProxy <==>|"HTTP MJPEG Stream"| P_Cam
+        AxisProxy <==>|"HTTP MJPEG Stream"| Win_Cam
+        LocalCams <==>|"WebRTC / MediaDevices"| P_Cam
         HTTPServer <==>|"HTTP Fetch"| CustomPlugins
         
         RTC --> PlotsView
@@ -305,30 +353,40 @@ For complete engineering details, see the dedicated guides in the [`docs/`](docs
 
 * [**Architecture & Protocol Guide**](docs/ARCHITECTURE.md): Backend gateway, MQTT bridge, FIFO ring-buffers, decoupled clock engine, and multi-window state synchronization.
 * [**Battery Subsystem Guide**](docs/BATTERY_SUBSYSTEM.md): 5S Li-ion battery curves, 20.1V–20.2V calibration, fault isolation thresholds, and diagnostics UI.
-* [**Camera System Guide**](docs/CAMERA_SYSTEM.md): 10-camera flexible layout, reconnect watchdog mechanism, streaming architecture, and snapshotting.
+* [**Camera System Guide**](docs/CAMERA_SYSTEM.md): AXIS F34 network integration, 5s grace period, 4.5s freeze watchdog, repeating 5s force reconnect loop, native renaming, and snapshotting.
 * [**Telemetry Dictionary**](docs/TELEMETRY_DICTIONARY.md): Comprehensive table of telemetry identifiers, units, limits, and payload schemas.
 
 ---
 
 ## Automated Verification Tests
 
-The GCS includes automated headless Electron verification scripts:
+The GCS includes automated headless Electron verification test suites:
 
 ```powershell
+# Verify Display Layout grids, tab ordering & native camera renaming persistence
+node run-electron.js --test=test_persistence
+# (Alternative PowerShell env syntax: $env:TEST_RUN="test_persistence"; & "node_modules\electron\dist\electron.exe" .)
+
+# Verify AXIS F34 streams, 5s grace period, repeating 5s force reconnect & freeze watchdog
+node run-electron.js --test=test_cameras
+
 # Verify timeline initiation standby gating & Rover MQTT Live Logs console
-$env:TEST_RUN="test_timeline_and_logs"; & "node_modules\electron\dist\electron.exe" .
+node run-electron.js --test=test_timeline_and_logs
 
 # Verify native Open MCT Plan layouts, Time Strips, Timelists & Nav embedded plan
-$env:TEST_RUN="test_timeline"; & "node_modules\electron\dist\electron.exe" .
+node run-electron.js --test=test_timeline
+
+# Verify timeline interactive controls (start, pause, resume, reset, edit)
+node run-electron.js --test=test_timeline_controls
 
 # Verify battery telemetry, top panel indicators & diagnostics window
-$env:TEST_RUN="test_battery"; & "node_modules\electron\dist\electron.exe" .
+node run-electron.js --test=test_battery
 
-# Verify 10-camera flexible layout & reconnect watchdog countdown
-$env:TEST_RUN="test_cameras"; & "node_modules\electron\dist\electron.exe" .
+# Verify telemetry snapshot capture and modal overlay
+node run-electron.js --test=test_snapshot
 
 # Full end-to-end telemetry ingestion test
-$env:TEST_RUN="e2e"; & "node_modules\electron\dist\electron.exe" .
+node run-electron.js --test=e2e
 ```
 
 ---

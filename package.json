@@ -8,6 +8,9 @@
     "start:web": "node example-server/server.js",
     "start:browser": "node example-server/server.js --open",
     "electron": "node run-electron.js",
+    "test": "node run-electron.js --test=e2e",
+    "test:cameras": "node run-electron.js --test=test_cameras",
+    "test:persistence": "node run-electron.js --test=test_persistence",
     "clean": "rm -rf node_modules package-lock.json"
   },
   "repository": {
