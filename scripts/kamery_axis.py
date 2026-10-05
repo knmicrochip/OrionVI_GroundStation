@@ -40,7 +40,7 @@ def main():
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
     # --- KONFIGURACJA KAMER ---
-    IP = "192.168.11.150"  
+    IP = os.environ.get("AXIS_IP", "169.254.186.98")  
     USER = "orion"
     PASS = "orion"
 

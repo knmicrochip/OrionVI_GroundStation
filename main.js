@@ -253,7 +253,15 @@ async function createWindow() {
                     await new Promise(r => setTimeout(r, 3000));
 
                     const devList = await mainWindow.webContents.executeJavaScript(`
-                        navigator.mediaDevices.enumerateDevices().then(devs => devs.map(d => ({ kind: d.kind, label: d.label, deviceId: d.deviceId })))
+                        (async () => {
+                            try {
+                                if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return [];
+                                const devs = await navigator.mediaDevices.enumerateDevices();
+                                return devs.map(d => ({ kind: d.kind, label: d.label, deviceId: d.deviceId }));
+                            } catch (e) {
+                                return { error: e.message };
+                            }
+                        })()
                     `);
                     console.log('[Test Devices List]', JSON.stringify(devList));
 
@@ -320,13 +328,26 @@ async function createWindow() {
                     `);
                     console.log('[Test Cameras] Countdown Progression Diagnostic:', JSON.stringify(progressDiag));
 
+                    const camSignals = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const mgr = window.OrionCameraManager;
+                            return {
+                                cam1: mgr ? mgr.hasSignal(1) : false,
+                                cam2: mgr ? mgr.hasSignal(2) : false,
+                                cam3: mgr ? mgr.hasSignal(3) : false,
+                                cam4: mgr ? mgr.hasSignal(4) : false
+                            };
+                        })()
+                    `);
+                    console.log('[Test Cameras] Camera Signals Diagnostic:', JSON.stringify(camSignals));
+
                     const tabCamerasLiveImg = await mainWindow.webContents.capturePage();
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-modes-tab-cameras-live.png'), tabCamerasLiveImg.toPNG());
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-10-cameras-flexible-layout-mixed.png'), tabCamerasLiveImg.toPNG());
                     console.log('[Test Cameras] Saved screenshot-modes-tab-cameras-live.png');
 
-                    // Navigate directly to dedicated view for Mast RGB camera (cam_mast_rgb)
-                    console.log('[Test Cameras] Navigating to dedicated view for cam_mast_rgb...');
+                    // Navigate directly to dedicated view for Camera 1 (cam_mast_rgb / AXIS 1)
+                    console.log('[Test Cameras] Navigating to dedicated view for Camera 1 (cam_mast_rgb)...');
                     await mainWindow.webContents.executeJavaScript(`
                         window.location.hash = '#/browse/orion.taxonomy:cam_mast_rgb';
                     `);
@@ -334,7 +355,19 @@ async function createWindow() {
 
                     const cleanMastImg = await mainWindow.webContents.capturePage();
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-mast-clean.png'), cleanMastImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-mast-clean.png');
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-axis-1-live.png'), cleanMastImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-axis-1-live.png');
+
+                    // Navigate directly to dedicated view for Camera 2 (cam_mast_depth / AXIS 2)
+                    console.log('[Test Cameras] Navigating to dedicated view for Camera 2 (cam_mast_depth)...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:cam_mast_depth';
+                    `);
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    const cam2Img = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-axis-2-live.png'), cam2Img.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-axis-2-live.png');
 
                     // Verify clean TELEOP display has zero cameras
                     console.log('[Test Cameras] Navigating to clean TELEOP display...');
@@ -347,26 +380,159 @@ async function createWindow() {
                     fs.writeFileSync(path.join(artifactDir, 'screenshot-clean-teleop-display.png'), cleanTeleopImg.toPNG());
                     console.log('[Test Cameras] Saved screenshot-clean-teleop-display.png');
 
-                    // Open pop-out window for camera-view.html?cam=1 to verify popout window
-                    console.log('[Test Cameras] Opening pop-out window for camera-view.html?cam=1...');
-                    const popout = new BrowserWindow({
+                    // Open pop-out window for Camera 1 (AXIS 1)
+                    console.log('[Test Cameras] Opening pop-out window for Camera 1 (camera-view.html?cam=1)...');
+                    const popout1 = new BrowserWindow({
                         width: 840,
                         height: 540,
                         minWidth: 440,
                         minHeight: 320,
-                        title: 'Orion Rover - Mast Intel RealSense D435i Feed',
+                        title: 'Orion Rover - AXIS 1 Stream Feed',
                         webPreferences: {
                             nodeIntegration: false,
                             contextIsolation: true
                         }
                     });
-                    await popout.loadURL(`http://localhost:${port}/camera-view.html?cam=1`);
+                    await popout1.loadURL(`http://localhost:${port}/camera-view.html?cam=1`);
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    const popout1Img = await popout1.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-axis-1-popout.png'), popout1Img.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-axis-1-popout.png');
+                    popout1.close();
+
+                    // Open pop-out window for Camera 2 (AXIS 2)
+                    console.log('[Test Cameras] Opening pop-out window for Camera 2 (camera-view.html?cam=2)...');
+                    const popout2 = new BrowserWindow({
+                        width: 840,
+                        height: 540,
+                        minWidth: 440,
+                        minHeight: 320,
+                        title: 'Orion Rover - AXIS 2 Stream Feed',
+                        webPreferences: {
+                            nodeIntegration: false,
+                            contextIsolation: true
+                        }
+                    });
+                    await popout2.loadURL(`http://localhost:${port}/camera-view.html?cam=2`);
+                    await new Promise(r => setTimeout(r, 2500));
+
+                    const popout2Img = await popout2.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-axis-2-popout.png'), popout2Img.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-axis-2-popout.png');
+                    popout2.close();
+
+                    // Verify 5-second Grace Period for NO SIGNAL background on Camera 4 (empty port)
+                    console.log('[Test Cameras] Testing 5s Grace Period on Camera 4 (camera-view.html?cam=4)...');
+                    const popout3 = new BrowserWindow({
+                        width: 840,
+                        height: 540,
+                        minWidth: 440,
+                        minHeight: 320,
+                        title: 'Orion Rover - AXIS 4 (Grace Period Test)',
+                        webPreferences: {
+                            nodeIntegration: false,
+                            contextIsolation: true
+                        }
+                    });
+                    await popout3.loadURL(`http://localhost:${port}/camera-view.html?cam=4`);
+                    
+                    // Check at t=1s: within grace period, overlay must be hidden (display: none)
+                    await new Promise(r => setTimeout(r, 1000));
+                    const earlyOverlayState = await popout3.webContents.executeJavaScript(`
+                        (() => {
+                            const el = document.getElementById('no-signal-overlay');
+                            return el ? el.style.display : null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] At t=1s, overlay display:', earlyOverlayState, '(Expected: none)');
+                    const gracePeriodImg = await popout3.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-grace-period-1s.png'), gracePeriodImg.toPNG());
+
+                    // Check at t=6s: after 5s grace period, overlay must appear (display: flex)
+                    await new Promise(r => setTimeout(r, 4500));
+                    const lateOverlayState = await popout3.webContents.executeJavaScript(`
+                        (() => {
+                            const el = document.getElementById('no-signal-overlay');
+                            return el ? el.style.display : null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] At t=5.5s, overlay display:', lateOverlayState, '(Expected: flex)');
+                    const after5sImg = await popout3.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-nosignal-after-5s.png'), after5sImg.toPNG());
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-popout-nosignal.png'), after5sImg.toPNG());
+
+                    // Observe popout countdown progression to 0 and repeating 5s cycle
+                    console.log('[Test Cameras] Testing repeating 5s force reconnect loop in popout...');
+                    let reconnectTriggerObserved = false;
+                    for (let step = 0; step < 7; step++) {
+                        await new Promise(r => setTimeout(r, 1000));
+                        const curCountdown = await popout3.webContents.executeJavaScript(`
+                            (() => {
+                                const el = document.getElementById('no-signal-reconnect');
+                                return el ? el.textContent.trim() : '';
+                            })()
+                        `);
+                        console.log(`[Test Cameras] Popout reconnect status (step ${step}):`, curCountdown);
+                        if (curCountdown.includes('0s') || curCountdown.includes('5s')) {
+                            reconnectTriggerObserved = true;
+                        }
+                    }
+                    console.log('[Test Cameras] Verified repeating 5s force reconnect loop:', reconnectTriggerObserved);
+                    popout3.close();
+
+                    // Verify Freeze Detection & Reset Countdown in main window on live Camera 2
+                    console.log('[Test Cameras] Testing Freeze Detection and Reset Countdown on live Camera 2...');
+                    await mainWindow.webContents.executeJavaScript(`
+                        window.location.hash = '#/browse/orion.taxonomy:cam_mast_depth';
+                    `);
                     await new Promise(r => setTimeout(r, 2000));
 
-                    const popoutNoSigImg = await popout.webContents.capturePage();
-                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-popout-nosignal.png'), popoutNoSigImg.toPNG());
-                    console.log('[Test Cameras] Saved screenshot-camera-popout-nosignal.png');
-                    popout.close();
+                    // Simulate stream freeze by signaling freeze event to CameraManager
+                    const freezeTriggered = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const mgr = window.OrionCameraManager;
+                            if (mgr) {
+                                // Simulate loss of frames / freeze
+                                mgr.setSignal(2, false);
+                                return {
+                                    hasSignal: mgr.hasSignal(2),
+                                    countdown: mgr.countdowns.get(2)
+                                };
+                            }
+                            return null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] Stream Freeze Trigger Result (Camera 2):', JSON.stringify(freezeTriggered));
+
+                    // Verify countdown begins counting down immediately from 5
+                    await new Promise(r => setTimeout(r, 1500));
+                    const postFreezeCountdown = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const mgr = window.OrionCameraManager;
+                            return mgr ? mgr.countdowns.get(2) : null;
+                        })()
+                    `);
+                    console.log('[Test Cameras] Post-freeze countdown value:', postFreezeCountdown, '(Expected: < 5)');
+
+                    // Wait for 5s countdown to complete and force reconnect
+                    console.log('[Test Cameras] Waiting for 5s countdown completion and force reconnect...');
+                    await new Promise(r => setTimeout(r, 4500));
+
+                    const postReconnectState = await mainWindow.webContents.executeJavaScript(`
+                        (() => {
+                            const mgr = window.OrionCameraManager;
+                            return {
+                                hasSignal: mgr ? mgr.hasSignal(2) : false,
+                                countdown: mgr ? mgr.countdowns.get(2) : null
+                            };
+                        })()
+                    `);
+                    console.log('[Test Cameras] Post-force-reconnect Camera 2 State:', JSON.stringify(postReconnectState));
+
+                    const reconnectedImg = await mainWindow.webContents.capturePage();
+                    fs.writeFileSync(path.join(artifactDir, 'screenshot-camera-reconnected-live.png'), reconnectedImg.toPNG());
+                    console.log('[Test Cameras] Saved screenshot-camera-reconnected-live.png');
 
                     console.log('[Test Cameras] All verifications finished successfully!');
                 } catch (e) {

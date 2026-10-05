@@ -69,7 +69,7 @@ class VideoStream:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Orion VI AXIS Camera Vision & Open MCT Bridge")
-    parser.add_argument("--ip", default="192.168.11.150", help="AXIS camera server IP (default: 192.168.11.150)")
+    parser.add_argument("--ip", default=os.environ.get("AXIS_IP", "169.254.186.98"), help="AXIS camera server IP (default: 169.254.186.98)")
     parser.add_argument("--user", default="orion", help="AXIS username (default: orion)")
     parser.add_argument("--password", default="orion", help="AXIS password (default: orion)")
     parser.add_argument("--gateway", default="http://localhost:8088", help="Open MCT gateway URL (default: http://localhost:8088)")

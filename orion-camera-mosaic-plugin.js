@@ -268,7 +268,36 @@
             }
             this.isActive = false;
             this.deviceId = null;
+            this._lastProgressionTime = 0;
             this.notify();
+        }
+
+        checkFrozen() {
+            if (!this.isActive || !this.video) return false;
+            const curTime = this.video.currentTime;
+            const quality = (typeof this.video.getVideoPlaybackQuality === 'function') ? this.video.getVideoPlaybackQuality() : null;
+            const totalFrames = quality ? quality.totalVideoFrames : null;
+            const now = Date.now();
+
+            if (!this._lastProgressionTime) {
+                this._lastProgressionTime = now;
+                this._lastCurTime = curTime;
+                this._lastTotalFrames = totalFrames;
+                return false;
+            }
+
+            const advanced = (curTime !== this._lastCurTime) || (totalFrames !== null && totalFrames !== this._lastTotalFrames);
+            if (advanced) {
+                this._lastProgressionTime = now;
+                this._lastCurTime = curTime;
+                this._lastTotalFrames = totalFrames;
+                return false;
+            }
+
+            if ((now - this._lastProgressionTime) >= 5000) {
+                return true;
+            }
+            return false;
         }
 
         async toggle() {
@@ -328,20 +357,27 @@
                 this.notify();
             };
 
-            img.src = `/api/camera/axis/${this.channelId}/stream`;
+            img.src = `/api/camera/axis/${this.channelId}/stream?t=${Date.now()}&force=true&reconnect=${Math.random().toString(36).substring(2, 9)}`;
             this.img = img;
         }
 
-        reconnect() {
+        forceReconnect() {
             if (this.img) {
-                this.img.src = `/api/camera/axis/${this.channelId}/stream?t=` + Date.now();
-            } else {
-                this._initStream();
+                this.img.onload = null;
+                this.img.onerror = null;
+                this.img.src = '';
+                this.img = null;
             }
+            this.isActive = false;
+            this._initStream();
+        }
+
+        reconnect() {
+            this.forceReconnect();
         }
 
         hasLiveFrame() {
-            return Boolean(this.isActive && this.img && this.img.complete && this.img.naturalWidth > 0);
+            return Boolean(this.isActive && this.img && this.img.naturalWidth > 0);
         }
 
         subscribe(cb) {
@@ -423,15 +459,23 @@
                 [12, false]
             ]);
             this.countdowns = new Map();
+            this.lostSignalTimes = new Map();
+            const now = Date.now();
             const cams = getCamerasList();
             cams.forEach(c => {
                 this.countdowns.set(c.id, 5);
                 c._countdownSec = 5;
+                this.lostSignalTimes.set(c.id, now);
             });
             this.listeners = new Set();
             this._startHeartbeat();
 
             // Auto-detect & synchronize hardware services with boolean active state
+            axisStreams.forEach((stream, channelId) => {
+                stream.subscribe(state => {
+                    this.setSignal(channelId, state.isActive);
+                });
+            });
             laptopWebcamService.subscribe(state => {
                 this.setSignal(5, state.isActive);
                 this.setSignal(11, state.isActive);
@@ -440,20 +484,52 @@
                 this.setSignal(6, state.isActive);
                 this.setSignal(12, state.isActive);
             });
+
+            // Initial hardware scan on startup
+            setTimeout(() => {
+                [1, 2, 3, 4, 5, 6].forEach(id => this.scanForFeed(id));
+            }, 800);
         }
 
         _startHeartbeat() {
             setInterval(async () => {
-                // Heartbeat liveness checks for hardware streams
-                if (laptopWebcamService.isActive && !laptopWebcamService.hasLiveTrack()) {
-                    console.warn('[CameraManager] Laptop webcam track ended in heartbeat check');
-                    laptopWebcamService.handleDisconnected();
+                // 1. Hardware freeze & disconnect checks
+                if (laptopWebcamService.isActive) {
+                    if (!laptopWebcamService.hasLiveTrack()) {
+                        console.warn('[CameraManager] Laptop webcam track ended');
+                        laptopWebcamService.handleDisconnected();
+                        this.setSignal(5, false);
+                        this.setSignal(11, false);
+                    } else if (laptopWebcamService.checkFrozen()) {
+                        console.warn('[CameraManager] Laptop webcam FROZEN (>5s no frames) - resetting stream & countdown');
+                        laptopWebcamService.handleDisconnected();
+                        this.setSignal(5, false);
+                        this.setSignal(11, false);
+                    }
                 }
-                if (usbCamService.isActive && !usbCamService.hasLiveTrack()) {
-                    console.warn('[CameraManager] USB camera track ended in heartbeat check');
-                    usbCamService.handleDisconnected();
+                if (usbCamService.isActive) {
+                    if (!usbCamService.hasLiveTrack()) {
+                        console.warn('[CameraManager] USB camera track ended');
+                        usbCamService.handleDisconnected();
+                        this.setSignal(6, false);
+                        this.setSignal(12, false);
+                    } else if (usbCamService.checkFrozen()) {
+                        console.warn('[CameraManager] USB camera FROZEN (>5s no frames) - resetting stream & countdown');
+                        usbCamService.handleDisconnected();
+                        this.setSignal(6, false);
+                        this.setSignal(12, false);
+                    }
                 }
 
+                // 2. AXIS camera stream liveness and freeze check
+                for (let ch = 1; ch <= 4; ch++) {
+                    const hasSig = this.signals.get(ch) ?? false;
+                    if (hasSig) {
+                        this._verifyAxisStreamLiveness(ch);
+                    }
+                }
+
+                // 3. Countdown decrement and force reconnect on expiration
                 const cams = getCamerasList();
                 for (const cam of cams) {
                     const id = cam.id;
@@ -479,30 +555,70 @@
                         el.textContent = `Attempting reconnect in ${cur}s...`;
                     });
 
-                    // On countdown expiration, actively restart connection attempts
+                    // Each time 5s countdown is complete (reaches 0), app MUST FORCE RECONNECT to camera
                     if (cur === 0) {
-                        this._attemptReconnect(id);
+                        this._forceReconnectCamera(id);
+                        // Reset countdown to 5s so it repeats every 5s until successful
+                        this.countdowns.set(id, 5);
                     }
                 }
             }, 1000);
         }
 
-        async _attemptReconnect(id) {
+        async _verifyAxisStreamLiveness(ch) {
+            this._lastAxisVerifyTimes = this._lastAxisVerifyTimes || new Map();
+            const now = Date.now();
+            const lastCheck = this._lastAxisVerifyTimes.get(ch) || 0;
+            if (now - lastCheck < 2500) {
+                return;
+            }
+            this._lastAxisVerifyTimes.set(ch, now);
+
+            try {
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 3000);
+                const res = await fetch(`/api/camera/axis/${ch}/feed_status`, { signal: controller.signal }).catch(() => null);
+                clearTimeout(timeout);
+                if (!res || !res.ok) {
+                    console.warn(`[CameraManager] AXIS Camera ${ch} status check failed/timed out, marking as lost`);
+                    const stream = axisStreams.get(ch);
+                    if (stream) stream.isActive = false;
+                    this.setSignal(ch, false);
+                    return;
+                }
+                const data = await res.json();
+                if (!data.online) {
+                    console.warn(`[CameraManager] AXIS Camera ${ch} stream FROZEN or offline (>5s no stream frames). Resetting signal & starting 5s countdown.`);
+                    const stream = axisStreams.get(ch);
+                    if (stream) {
+                        stream.isActive = false;
+                        stream.error = 'Stream frozen or disconnected';
+                    }
+                    this.setSignal(ch, false);
+                }
+            } catch (_) {}
+        }
+
+        async _forceReconnectCamera(id) {
+            console.log(`[CameraManager] 5s countdown complete for Camera ${id} -> FORCING RECONNECT`);
             try {
                 if (id === 5 || id === 11) {
+                    laptopWebcamService.stop();
                     const ok = await laptopWebcamService.start();
                     this.setSignal(5, ok);
                     this.setSignal(11, ok);
                 } else if (id === 6 || id === 12) {
+                    usbCamService.stop();
                     const ok = await usbCamService.start();
                     this.setSignal(6, ok);
                     this.setSignal(12, ok);
                 } else if (id >= 1 && id <= 4) {
+                    // Force reconnect the MJPEG stream with a brand new Image instance
+                    if (axisStreams.has(id)) {
+                        axisStreams.get(id).forceReconnect();
+                    }
                     const found = await this.scanForFeed(id);
                     this.setSignal(id, found);
-                    if (found && axisStreams.has(id)) {
-                        axisStreams.get(id).reconnect();
-                    }
                 } else {
                     const found = await this.scanForFeed(id);
                     this.setSignal(id, found);
@@ -510,6 +626,10 @@
             } catch (_) {
                 this.setSignal(id, false);
             }
+        }
+
+        async _attemptReconnect(id) {
+            return this._forceReconnectCamera(id);
         }
 
         subscribe(cb) {
@@ -536,6 +656,8 @@
 
         hasSignal(camId) {
             const id = parseInt(camId, 10);
+            const isSig = this.signals.get(id) ?? false;
+            if (!isSig) return false;
             if (id === 5 || id === 11) {
                 return !!(laptopWebcamService.isActive && laptopWebcamService.video && laptopWebcamService.video.readyState >= 2 && laptopWebcamService.hasLiveTrack());
             }
@@ -545,11 +667,11 @@
             if (id >= 1 && id <= 4) {
                 const stream = axisStreams.get(id);
                 if (stream && stream.hasLiveFrame()) return true;
-                return this.signals.get(id) ?? false;
+                return isSig;
             }
             const vid = this.streamVideos.get(id);
             if (vid && vid.readyState >= 2) return true;
-            return this.signals.get(id) ?? false;
+            return isSig;
         }
 
         getStreamVideo(camId) {
@@ -562,16 +684,40 @@
             this.setSignal(id, !!(videoEl && videoEl.readyState >= 2));
         }
 
+        shouldShowNoSignal(camId) {
+            const id = parseInt(camId, 10);
+            if (this.hasSignal(id)) {
+                this.lostSignalTimes.delete(id);
+                return false;
+            }
+            let lostAt = this.lostSignalTimes.get(id);
+            if (!lostAt) {
+                lostAt = Date.now();
+                this.lostSignalTimes.set(id, lostAt);
+            }
+            return (Date.now() - lostAt) >= 5000;
+        }
+
         setSignal(camId, val) {
             const id = parseInt(camId, 10);
-            const changed = (this.signals.get(id) !== Boolean(val));
-            this.signals.set(id, Boolean(val));
-            if (changed) {
-                if (val) {
-                    this.countdowns.set(id, 5);
-                    const cam = this.getCameraById(id);
-                    if (cam) cam._countdownSec = 5;
+            const isOnline = Boolean(val);
+            const changed = (this.signals.get(id) !== isOnline);
+            this.signals.set(id, isOnline);
+            if (!isOnline && id >= 1 && id <= 4) {
+                const stream = axisStreams.get(id);
+                if (stream) stream.isActive = false;
+            }
+            if (isOnline) {
+                this.lostSignalTimes.delete(id);
+                this.countdowns.set(id, 5);
+                const cam = this.getCameraById(id);
+                if (cam) cam._countdownSec = 5;
+            } else {
+                if (!this.lostSignalTimes.has(id)) {
+                    this.lostSignalTimes.set(id, Date.now());
                 }
+            }
+            if (changed) {
                 this.notify();
             }
         }
@@ -688,12 +834,16 @@
             if (id >= 1 && id <= 4) {
                 try {
                     const controller = new AbortController();
-                    const timer = setTimeout(() => controller.abort(), 900);
+                    const timer = setTimeout(() => controller.abort(), 3000);
                     const res = await fetch(`/api/camera/axis/${id}/feed_status`, { signal: controller.signal }).catch(() => null);
                     clearTimeout(timer);
                     if (res && res.ok) {
                         const data = await res.json();
                         if (data && data.online) {
+                            const stream = axisStreams.get(id);
+                            if (stream && (!stream.isActive || !stream.hasLiveFrame())) {
+                                stream.forceReconnect();
+                            }
                             this.setSignal(id, true);
                             return true;
                         }
@@ -706,7 +856,7 @@
             // Fallback status check
             try {
                 const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 800);
+                const timer = setTimeout(() => controller.abort(), 2500);
                 const res = await fetch(`/api/camera/${id}/feed_status`, { signal: controller.signal }).catch(() => null);
                 clearTimeout(timer);
                 if (res && res.ok) {
@@ -1034,7 +1184,18 @@
                 ctx.restore();
                 return;
             }
-            drawNoSignalScene(ctx, cam, now, width, height);
+            if (cameraManager.shouldShowNoSignal(cam.id)) {
+                drawNoSignalScene(ctx, cam, now, width, height);
+            } else if (axisStream && axisStream.img && axisStream.img.naturalWidth > 0) {
+                // Within 5s grace period: keep displaying last known frame
+                ctx.save();
+                ctx.drawImage(axisStream.img, 0, 0, width, height);
+                drawAxisFeedHudOverlay(ctx, cam, now, width, height, axisStream);
+                ctx.restore();
+            } else {
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, width, height);
+            }
             return;
         }
 
@@ -1047,7 +1208,12 @@
                 ctx.restore();
                 return;
             }
-            drawNoSignalScene(ctx, cam, now, width, height);
+            if (cameraManager.shouldShowNoSignal(cam.id)) {
+                drawNoSignalScene(ctx, cam, now, width, height);
+            } else {
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, width, height);
+            }
             return;
         }
 
@@ -1060,7 +1226,12 @@
                 ctx.restore();
                 return;
             }
-            drawNoSignalScene(ctx, cam, now, width, height);
+            if (cameraManager.shouldShowNoSignal(cam.id)) {
+                drawNoSignalScene(ctx, cam, now, width, height);
+            } else {
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, width, height);
+            }
             return;
         }
 
@@ -1073,7 +1244,12 @@
             return;
         }
 
-        drawNoSignalScene(ctx, cam, now, width, height);
+        if (cameraManager.shouldShowNoSignal(cam.id)) {
+            drawNoSignalScene(ctx, cam, now, width, height);
+        } else {
+            ctx.fillStyle = '#0a0a0a';
+            ctx.fillRect(0, 0, width, height);
+        }
     }
 
     function OrionCameraMosaicPlugin() {
@@ -1257,7 +1433,7 @@
                 <canvas id="single-cam-canvas" style="width: 100%; height: 100%; object-fit: contain; display: block;"></canvas>
                 
                 <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
-                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${initialSig ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 10; pointer-events: none; user-select: none;">
+                <div id="single-no-signal" style="position: absolute; inset: 0; display: ${cameraManager.shouldShowNoSignal(cam.id) ? 'flex' : 'none'}; flex-direction: column; align-items: center; justify-content: center; background: #0a0a0a; z-index: 10; pointer-events: none; user-select: none;">
                     <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 68px; height: 68px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
                     <div style="font-family: monospace, sans-serif; font-size: 15px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 18px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
                         NO SIGNAL
@@ -1287,11 +1463,13 @@
             const hudDot = container.querySelector('#single-hud-dot');
             const hudStatus = container.querySelector('#single-hud-status');
             const hudFps = container.querySelector('#single-hud-fps');
-            if (noSigOverlay) noSigOverlay.style.display = hasSig ? 'none' : 'flex';
-            if (hudDot) hudDot.style.background = hasSig ? '#22c55e' : '#ef4444';
+            if (noSigOverlay) {
+                noSigOverlay.style.display = cameraManager.shouldShowNoSignal(cam.id) ? 'flex' : 'none';
+            }
+            if (hudDot) hudDot.style.background = hasSig ? '#22c55e' : (cameraManager.shouldShowNoSignal(cam.id) ? '#ef4444' : '#f59e0b');
             if (hudStatus) {
-                hudStatus.textContent = hasSig ? 'LIVE' : 'NO SIGNAL';
-                hudStatus.style.color = hasSig ? '#22c55e' : '#ef4444';
+                hudStatus.textContent = hasSig ? 'LIVE' : (cameraManager.shouldShowNoSignal(cam.id) ? 'NO SIGNAL' : 'ACQUIRING...');
+                hudStatus.style.color = hasSig ? '#22c55e' : (cameraManager.shouldShowNoSignal(cam.id) ? '#ef4444' : '#f59e0b');
             }
             if (hudFps) {
                 hudFps.textContent = hasSig ? '30 FPS' : '0 FPS | 0.0 Mbps';
@@ -1330,6 +1508,13 @@
             const timeStr = `UTC: ${new Date(now).toISOString().substring(11, 23)}`;
             if (hudTime) hudTime.textContent = timeStr;
             if (osdTime) osdTime.textContent = timeStr;
+            const noSigOverlay = container.querySelector('#single-no-signal');
+            if (noSigOverlay) {
+                const showNoSig = cameraManager.shouldShowNoSignal(cam.id);
+                const cur = noSigOverlay.style.display;
+                if (showNoSig && cur !== 'flex') noSigOverlay.style.display = 'flex';
+                else if (!showNoSig && cur !== 'none') noSigOverlay.style.display = 'none';
+            }
             drawCameraScene(ctx, cam, now, canvas.width, canvas.height);
             animId = requestAnimationFrame(renderLoop);
         }
@@ -1436,7 +1621,7 @@
                 <div style="position: relative; flex: 1; min-height: 0; background: #000000; overflow: hidden;">
                     <canvas id="tile-canvas-${cam.id}" style="width: 100%; height: 100%; object-fit: cover; display: block;"></canvas>
                     <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
-                    <div id="tile-no-signal-${cam.id}" style="position: absolute; inset: 0; display: ${cameraManager.hasSignal(cam.id) ? 'none' : 'flex'}; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.94); z-index: 10; pointer-events: none; user-select: none;">
+                    <div id="tile-no-signal-${cam.id}" style="position: absolute; inset: 0; display: ${cameraManager.shouldShowNoSignal(cam.id) ? 'flex' : 'none'}; flex-direction: column; align-items: center; justify-content: center; background: #0a0a0a; z-index: 10; pointer-events: none; user-select: none;">
                         <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion Logo" style="width: ${isHero ? '64px' : '38px'}; height: ${isHero ? '64px' : '38px'}; object-fit: contain; margin-bottom: 6px; filter: drop-shadow(0 0 8px rgba(255, 255, 255, 0.25));" />
                         <div style="font-family: monospace, sans-serif; font-size: ${isHero ? '14px' : '11px'}; font-weight: 900; letter-spacing: 2.5px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 3px 12px; border-radius: 0px !important; text-shadow: 0 0 10px rgba(239, 68, 68, 0.6);">
                             NO SIGNAL
@@ -1589,6 +1774,13 @@
             function multiCanvasLoop() {
                 const now = Date.now();
                 activeTileCanvases.forEach(({ canvas, ctx, cam }) => {
+                    const noSigEl = viewport.querySelector(`#tile-no-signal-${cam.id}`);
+                    if (noSigEl) {
+                        const showNoSig = cameraManager.shouldShowNoSignal(cam.id);
+                        const cur = noSigEl.style.display;
+                        if (showNoSig && cur !== 'flex') noSigEl.style.display = 'flex';
+                        else if (!showNoSig && cur !== 'none') noSigEl.style.display = 'none';
+                    }
                     drawCameraScene(ctx, cam, now, canvas.width, canvas.height);
                 });
                 animFrameId = requestAnimationFrame(multiCanvasLoop);

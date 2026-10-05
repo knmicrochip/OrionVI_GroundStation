@@ -18,11 +18,12 @@
 const http = require('http');
 const crypto = require('crypto');
 const url = require('url');
+const dgram = require('dgram');
 
 class AxisCameraProxy {
     constructor(options = {}) {
         this.config = {
-            ip: process.env.AXIS_IP || options.ip || '192.168.11.150',
+            ip: process.env.AXIS_IP || options.ip || '169.254.186.98',
             port: parseInt(process.env.AXIS_PORT || options.port || 80, 10),
             user: process.env.AXIS_USER || options.user || 'orion',
             pass: process.env.AXIS_PASS || options.pass || 'orion',
@@ -30,9 +31,22 @@ class AxisCameraProxy {
             timeoutMs: 2500
         };
 
+        // Candidate IP addresses to probe if current IP is unreachable
+        this.candidateIps = [
+            process.env.AXIS_IP,
+            this.config.ip,
+            '169.254.186.98',
+            '169.254.186.99',
+            '169.254.39.168',
+            '192.168.1.81',
+            '192.168.11.150',
+            '192.168.0.90'
+        ].filter(Boolean);
+
         // Cache for latest frames pushed from Python vision service or snapshot poll
         this.latestFrames = new Map(); // camId -> { buffer: Buffer, timestamp: number }
         this.statusCache = new Map(); // camId -> { online: boolean, checkedAt: number }
+        this.activeStreams = new Map(); // camId -> lastChunkTime
         this.subscribers = new Map(); // camId -> Set of express res objects for MJPEG push
 
         // WDR state per sensor (0 to 3)
@@ -40,6 +54,124 @@ class AxisCameraProxy {
 
         // Simulated test pattern generator when in explicit test mode
         this.simMode = process.env.SIM_AXIS === 'true';
+
+        // Auto-discover camera on startup
+        this.discoverCamera().catch(() => {});
+    }
+
+    /**
+     * Fast host probe to check if an IP responds to AXIS HTTP requests
+     */
+    _probeHost(host) {
+        return new Promise(resolve => {
+            const req = http.request({
+                hostname: host,
+                port: this.config.port || 80,
+                path: '/axis-cgi/param.cgi?action=list&group=Brand.ProdShortName',
+                method: 'GET',
+                timeout: 800
+            }, res => {
+                resolve(res.statusCode === 200 || res.statusCode === 401);
+            });
+            req.on('error', () => resolve(false));
+            req.on('timeout', () => { req.destroy(); resolve(false); });
+            req.end();
+        });
+    }
+
+    /**
+     * Multicast SSDP M-SEARCH discovery for AXIS cameras
+     */
+    _discoverViaSsdp(timeoutMs = 1500) {
+        return new Promise(resolve => {
+            let socket;
+            try {
+                socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+            } catch (_) {
+                return resolve(null);
+            }
+            let resolved = false;
+
+            socket.on('message', (msg, rinfo) => {
+                const str = msg.toString();
+                if (str.includes('AXIS') || str.includes('ACCC8E') || str.includes('axis-com') || str.includes('rootdesc')) {
+                    if (!resolved) {
+                        resolved = true;
+                        try { socket.close(); } catch (_) {}
+                        resolve(rinfo.address);
+                    }
+                }
+            });
+
+            socket.on('error', () => {
+                if (!resolved) {
+                    resolved = true;
+                    try { socket.close(); } catch (_) {}
+                    resolve(null);
+                }
+            });
+
+            socket.bind(0, () => {
+                try {
+                    socket.setBroadcast(true);
+                    socket.setMulticastTTL(2);
+                } catch (_) {}
+
+                const query = Buffer.from(
+                    'M-SEARCH * HTTP/1.1\r\n' +
+                    'HOST: 239.255.255.250:1900\r\n' +
+                    'MAN: "ssdp:discover"\r\n' +
+                    'MX: 1\r\n' +
+                    'ST: ssdp:all\r\n\r\n'
+                );
+
+                socket.send(query, 0, query.length, 1900, '239.255.255.250', () => {});
+                socket.send(query, 0, query.length, 1900, '169.254.255.255', () => {});
+                socket.send(query, 0, query.length, 1900, '255.255.255.255', () => {});
+            });
+
+            setTimeout(() => {
+                if (!resolved) {
+                    resolved = true;
+                    try { socket.close(); } catch (_) {}
+                    resolve(null);
+                }
+            }, timeoutMs);
+        });
+    }
+
+    /**
+     * Automatically discover and select the active AXIS camera IP
+     */
+    async discoverCamera() {
+        for (const candidate of this.candidateIps) {
+            try {
+                const isAlive = await this._probeHost(candidate);
+                if (isAlive) {
+                    if (this.config.ip !== candidate) {
+                        console.log(`[AxisCameraProxy] Discovered active AXIS camera host: ${candidate}`);
+                        this.config.ip = candidate;
+                        this.statusCache.clear();
+                    }
+                    return candidate;
+                }
+            } catch (_) {}
+        }
+
+        try {
+            const ssdpIp = await this._discoverViaSsdp(1200);
+            if (ssdpIp) {
+                console.log(`[AxisCameraProxy] SSDP discovered AXIS camera at: ${ssdpIp}`);
+                this.config.ip = ssdpIp;
+                if (!this.candidateIps.includes(ssdpIp)) {
+                    this.candidateIps.unshift(ssdpIp);
+                }
+                this.statusCache.clear();
+                return ssdpIp;
+            }
+        } catch (_) {}
+
+        return this.config.ip;
     }
 
     /**
@@ -143,16 +275,27 @@ class AxisCameraProxy {
     /**
      * Check if a camera channel is online
      */
-    async isCameraOnline(camId) {
+    async isCameraOnline(camId, force = false) {
+        if (force) {
+            this.statusCache.delete(camId);
+        }
+
+        // Fast check: If MJPEG stream is actively receiving frames from AXIS, return true immediately!
+        // This avoids hammering the AXIS camera hardware with redundant param.cgi / image.cgi polling.
+        const lastStreamChunk = this.activeStreams.get(camId);
+        if (!force && lastStreamChunk && (Date.now() - lastStreamChunk) < 4500) {
+            return true;
+        }
+
         // If Python vision service pushed a frame in the last 4 seconds, consider online
         const lastPush = this.latestFrames.get(camId);
         if (lastPush && (Date.now() - lastPush.timestamp) < 4000) {
             return true;
         }
 
-        // Check cached status (1.5s TTL)
+        // Check cached status (2.0s TTL) unless force requested
         const cached = this.statusCache.get(camId);
-        if (cached && (Date.now() - cached.checkedAt) < 1500) {
+        if (!force && cached && (Date.now() - cached.checkedAt) < 2000) {
             return cached.online;
         }
 
@@ -162,10 +305,36 @@ class AxisCameraProxy {
         }
 
         try {
-            const probePath = `/axis-cgi/param.cgi?action=list&group=ImageSource.${camId - 1}`;
-            const res = await this.makeRequest(probePath, 'HEAD');
-            const isOk = res.statusCode >= 200 && res.statusCode < 400;
+            // Verify current host is responding; if not, discover
+            let alive = await this._probeHost(this.config.ip);
+            if (!alive) {
+                await this.discoverCamera();
+            }
+
+            const idx = camId - 1;
+            const probePath = `/axis-cgi/param.cgi?action=list&group=ImageSource.I${idx}`;
+            const res = await this.makeRequest(probePath, 'GET');
+            let isOk = res.statusCode >= 200 && res.statusCode < 400;
             res.resume();
+
+            // On multi-sensor AXIS F34, verify physical sensor is connected
+            // Connected sensors return real JPEG data (>2500 bytes for 320x180)
+            // Empty ports return static ~2217-byte "No video" placeholders
+            if (isOk) {
+                try {
+                    const snapRes = await this.makeRequest(`/axis-cgi/jpg/image.cgi?camera=${camId}&resolution=320x180`, 'GET');
+                    if (snapRes.statusCode === 200) {
+                        const chunks = [];
+                        await new Promise(r => {
+                            snapRes.on('data', c => chunks.push(c));
+                            snapRes.on('end', r);
+                        });
+                        const totalBytes = Buffer.concat(chunks).length;
+                        isOk = (totalBytes > 2500);
+                    }
+                } catch (_) {}
+            }
+
             this.statusCache.set(camId, { online: isOk, checkedAt: Date.now() });
             return isOk;
         } catch (_) {
@@ -181,7 +350,8 @@ class AxisCameraProxy {
         // 1. Camera Feed Status
         app.get('/api/camera/axis/:id/feed_status', async (req, res) => {
             const camId = parseInt(req.params.id, 10) || 1;
-            const online = await this.isCameraOnline(camId);
+            const force = req.query.force === 'true';
+            const online = await this.isCameraOnline(camId, force);
             res.json({
                 id: camId,
                 name: `AXIS ${camId}`,
@@ -228,61 +398,103 @@ class AxisCameraProxy {
         });
 
         // 3. Proxy live MJPEG Stream directly to browser/OpenMCT
+        // 3. MJPEG Video Stream Proxy (Direct stream to <img> or canvas in Open MCT)
         app.get('/api/camera/axis/:id/stream', async (req, res) => {
             const camId = parseInt(req.params.id, 10) || 1;
+            const isForce = req.query.force === 'true' || Boolean(req.query.reconnect);
+            if (isForce) {
+                this.statusCache.delete(camId);
+            }
 
             const lastFrame = this.latestFrames.get(camId);
             const hasRecentFrame = lastFrame && (Date.now() - lastFrame.timestamp) < 3000;
-            const isOnline = hasRecentFrame || (await this.isCameraOnline(camId));
+            const isOnline = hasRecentFrame || (await this.isCameraOnline(camId, isForce));
 
             if (!isOnline && !hasRecentFrame) {
                 return res.status(503).json({ error: 'AXIS camera offline', camId });
             }
 
-            // Set up multipart MJPEG response
-            const boundary = 'orion_mjpeg_boundary';
-            res.writeHead(200, {
-                'Content-Type': `multipart/x-mixed-replace; boundary=--${boundary}`,
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Connection': 'close',
-                'Pragma': 'no-cache'
-            });
+            // Case A: Python Vision Service is actively pushing processed frames
+            if (hasRecentFrame) {
+                const boundary = 'orion_mjpeg_boundary';
+                res.writeHead(200, {
+                    'Content-Type': `multipart/x-mixed-replace; boundary=${boundary}`,
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Connection': 'close',
+                    'Pragma': 'no-cache'
+                });
 
-            // If Python vision service is pushing frames, subscribe this client
-            if (!this.subscribers.has(camId)) {
-                this.subscribers.set(camId, new Set());
-            }
-            const clientSet = this.subscribers.get(camId);
-            clientSet.add(res);
+                if (!this.subscribers.has(camId)) {
+                    this.subscribers.set(camId, new Set());
+                }
+                const clientSet = this.subscribers.get(camId);
+                clientSet.add(res);
 
-            // Send existing frame immediately if available
-            if (lastFrame && lastFrame.buffer) {
-                this._sendMjpegFrame(res, lastFrame.buffer, boundary);
-            }
+                if (lastFrame && lastFrame.buffer) {
+                    this._sendMjpegFrame(res, lastFrame.buffer, boundary);
+                }
 
-            // Connect upstream to AXIS MJPEG stream if not relying on Python push
-            if (!lastFrame || (Date.now() - lastFrame.timestamp) > 2000) {
-                try {
-                    const mjpgPath = `/axis-cgi/mjpg/video.cgi?camera=${camId}&resolution=${this.config.resolution}`;
-                    const upstream = await this.makeRequest(mjpgPath, 'GET');
-                    if (upstream.statusCode === 200) {
-                        upstream.pipe(res);
-                        res.on('close', () => {
-                            try { upstream.destroy(); } catch (_) {}
-                        });
-                    } else {
-                        clientSet.delete(res);
-                        try { res.end(); } catch (_) {}
-                    }
-                } catch (_) {
+                req.on('close', () => {
                     clientSet.delete(res);
+                });
+                return;
+            }
+
+            // Case B: Direct streaming from AXIS camera MJPEG feed with 4.5s freeze watchdog
+            try {
+                const mjpgPath = `/axis-cgi/mjpg/video.cgi?camera=${camId}&resolution=${this.config.resolution}`;
+                const upstream = await this.makeRequest(mjpgPath, 'GET');
+                if (upstream.statusCode === 200) {
+                    const contentType = upstream.headers['content-type'] || 'multipart/x-mixed-replace; boundary=myboundary';
+                    res.writeHead(200, {
+                        'Content-Type': contentType,
+                        'Cache-Control': 'no-cache, no-store, must-revalidate',
+                        'Connection': 'close',
+                        'Pragma': 'no-cache'
+                    });
+
+                    let lastChunkTime = Date.now();
+                    this.activeStreams.set(camId, lastChunkTime);
+
+                    const streamWatchdog = setInterval(() => {
+                        const elapsed = Date.now() - lastChunkTime;
+                        if (elapsed > 4500) {
+                            console.warn(`[AxisCameraProxy] Camera ${camId} stream data FROZEN (${elapsed}ms without frames) - terminating stream to force reset`);
+                            clearInterval(streamWatchdog);
+                            this.activeStreams.delete(camId);
+                            this.statusCache.set(camId, { online: false, checkedAt: Date.now() });
+                            try { upstream.destroy(new Error('Stream frozen')); } catch (_) {}
+                            try { res.destroy(); } catch (_) {}
+                        }
+                    }, 1000);
+
+                    upstream.on('data', () => {
+                        lastChunkTime = Date.now();
+                        this.activeStreams.set(camId, lastChunkTime);
+                    });
+
+                    const cleanup = () => {
+                        clearInterval(streamWatchdog);
+                        this.activeStreams.delete(camId);
+                        try { upstream.destroy(); } catch (_) {}
+                    };
+
+                    upstream.on('close', cleanup);
+                    upstream.on('end', cleanup);
+                    upstream.on('error', cleanup);
+                    res.on('close', cleanup);
+
+                    upstream.pipe(res);
+                } else {
+                    res.status(upstream.statusCode).json({ error: 'Upstream AXIS camera returned non-200', code: upstream.statusCode });
+                }
+            } catch (err) {
+                if (!res.headersSent) {
+                    res.status(502).json({ error: 'Failed to connect to AXIS MJPEG stream', details: err.message });
+                } else {
                     try { res.end(); } catch (_) {}
                 }
             }
-
-            req.on('close', () => {
-                clientSet.delete(res);
-            });
         });
 
         // 4. Ingest frame from Python Vision Service (ArUco & QR Detection)
@@ -320,7 +532,7 @@ class AxisCameraProxy {
 
             const stateStr = targetState ? 'on' : 'off';
             try {
-                const path = `/axis-cgi/param.cgi?action=update&ImageSource.${idx}.Sensor.WDR=${stateStr}`;
+                const path = `/axis-cgi/param.cgi?action=update&ImageSource.I${idx}.Sensor.WDR=${stateStr}`;
                 const upstream = await this.makeRequest(path, 'GET');
                 upstream.resume();
                 if (upstream.statusCode === 200) {

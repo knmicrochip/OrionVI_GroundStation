@@ -232,7 +232,7 @@
         <div id="reticle" class="reticle-crosshair"></div>
 
         <!-- Center NO SIGNAL Overlay: Orion Logo + Red NO SIGNAL Label -->
-        <div id="no-signal-overlay" style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(10, 10, 10, 0.95); z-index: 20; pointer-events: none; user-select: none;">
+        <div id="no-signal-overlay" style="position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; background: #0a0a0a; z-index: 20; pointer-events: none; user-select: none;">
             <img src="/logotyp_pion_white.png" onerror="this.src='logotyp_pion_white.png'" alt="Orion VI Logo" style="width: 76px; height: 76px; object-fit: contain; margin-bottom: 12px; filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.3));" />
             <div style="font-family: monospace, sans-serif; font-size: 16px; font-weight: 900; letter-spacing: 3px; color: #ef4444; background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.6); padding: 5px 20px; border-radius: 0px !important; text-shadow: 0 0 12px rgba(239, 68, 68, 0.6);">
                 NO SIGNAL
@@ -331,10 +331,9 @@
             if (chosen) {
                 stopWebcam();
                 stopAxisStream();
-                hasSignal = false;
                 reconnectCountdown = 5;
                 setCamera(chosen);
-                updateSignalUI();
+                setSignalState(false);
                 if (chosen.id === 5 || chosen.id === 6 || chosen.id === 11 || chosen.id === 12) {
                     await startWebcam();
                 } else if (chosen.isAxis || (chosen.id >= 1 && chosen.id <= 4)) {
@@ -433,8 +432,12 @@
             setTimeout(() => { toast.style.display = 'none'; }, 2500);
         });
 
-        // Signal State: default NO SIGNAL when offline
+        // Signal State: 5-second grace period for NO SIGNAL background
         let hasSignal = false;
+        let showNoSignalBg = false;
+        let noSignalTimer = null;
+        let lostSignalTime = Date.now();
+
         const orionLogo = new Image();
         orionLogo.src = '/logotyp_pion_white.png';
 
@@ -442,17 +445,49 @@
         const liveDot = document.getElementById('cam-live-dot');
         const osdStatus = document.getElementById('osd-status');
 
+        function setSignalState(sig) {
+            const next = Boolean(sig);
+            hasSignal = next;
+            if (next) {
+                // Signal established: NO SIGNAL background disappears immediately
+                if (noSignalTimer) {
+                    clearTimeout(noSignalTimer);
+                    noSignalTimer = null;
+                }
+                showNoSignalBg = false;
+                lostSignalTime = null;
+                reconnectCountdown = 5;
+            } else {
+                // Signal lost: wait 5 seconds of continuous no signal before showing background
+                if (!lostSignalTime) {
+                    lostSignalTime = Date.now();
+                }
+                if (!showNoSignalBg && !noSignalTimer) {
+                    noSignalTimer = setTimeout(() => {
+                        noSignalTimer = null;
+                        if (!hasSignal) {
+                            showNoSignalBg = true;
+                            updateSignalUI();
+                        }
+                    }, 5000);
+                }
+            }
+            updateSignalUI();
+        }
+
         function updateSignalUI() {
-            noSigOverlay.style.display = hasSignal ? 'none' : 'flex';
-            liveDot.style.background = hasSignal ? '#22c55e' : '#ef4444';
+            noSigOverlay.style.display = showNoSignalBg ? 'flex' : 'none';
+            liveDot.style.background = hasSignal ? '#22c55e' : (showNoSignalBg ? '#ef4444' : '#f59e0b');
             hudFps.textContent = hasSignal ? '30 FPS' : '0 FPS';
-            hudFps.style.color = hasSignal ? '#22c55e' : '#ef4444';
+            hudFps.style.color = hasSignal ? '#22c55e' : (showNoSignalBg ? '#ef4444' : '#f59e0b');
             hudBitrate.textContent = hasSignal ? '12.4 Mbps' : '0.0 Mbps';
             hudBitrate.style.color = hasSignal ? '#38bdf8' : '#71717a';
-            osdStatus.textContent = hasSignal ? 'DOWNLINK: NOMINAL (99.8% PKTS)' : 'DOWNLINK: NO CARRIER (0.0% PKTS)';
-            osdStatus.style.color = hasSignal ? '#38bdf8' : '#ef4444';
+            osdStatus.textContent = hasSignal ? 'DOWNLINK: NOMINAL (99.8% PKTS)' : (showNoSignalBg ? 'DOWNLINK: NO CARRIER (0.0% PKTS)' : 'DOWNLINK: ACQUIRING CARRIER...');
+            osdStatus.style.color = hasSignal ? '#38bdf8' : (showNoSignalBg ? '#ef4444' : '#f59e0b');
         }
-        updateSignalUI();
+
+        // On initial startup, schedule NO SIGNAL background to appear after 5s if still disconnected
+        setSignalState(false);
 
         function isUsbCamera(device) {
             if (!device) return false;
@@ -614,9 +649,8 @@
                 webcamVideo = null;
             }
             isWebcamActive = false;
-            hasSignal = false;
             reconnectCountdown = 5;
-            updateSignalUI();
+            setSignalState(false);
         }
 
         // AXIS Network Camera Stream Handler
@@ -628,18 +662,20 @@
             const img = new Image();
             img.crossOrigin = 'anonymous';
             img.onload = () => {
-                hasSignal = true;
                 isAxisActive = true;
                 reconnectCountdown = 5;
-                updateSignalUI();
+                setSignalState(true);
             };
             img.onerror = () => {
-                hasSignal = false;
                 isAxisActive = false;
-                updateSignalUI();
+                setSignalState(false);
             };
-            img.src = `/api/camera/axis/${camId}/stream`;
+            img.src = `/api/camera/axis/${camId}/stream?t=${Date.now()}&force=true&reconnect=${Math.random().toString(36).substring(2, 9)}`;
             axisImg = img;
+        }
+
+        function forceReconnectAxisStream(camId) {
+            startAxisStream(camId);
         }
 
         function stopAxisStream() {
@@ -681,6 +717,38 @@
         let reconnectCountdown = 5;
         const reconnectEl = document.getElementById('no-signal-reconnect');
 
+        let lastWebcamCurTime = -1;
+        let lastWebcamFrames = -1;
+        let lastWebcamProgressionTime = 0;
+
+        function checkWebcamFrozen() {
+            if (!webcamVideo || !isWebcamActive) return false;
+            const curTime = webcamVideo.currentTime;
+            const quality = (typeof webcamVideo.getVideoPlaybackQuality === 'function') ? webcamVideo.getVideoPlaybackQuality() : null;
+            const frames = quality ? quality.totalVideoFrames : null;
+            const now = Date.now();
+
+            if (!lastWebcamProgressionTime) {
+                lastWebcamProgressionTime = now;
+                lastWebcamCurTime = curTime;
+                lastWebcamFrames = frames;
+                return false;
+            }
+
+            const advanced = (curTime !== lastWebcamCurTime) || (frames !== null && frames !== lastWebcamFrames);
+            if (advanced) {
+                lastWebcamProgressionTime = now;
+                lastWebcamCurTime = curTime;
+                lastWebcamFrames = frames;
+                return false;
+            }
+
+            if ((now - lastWebcamProgressionTime) >= 5000) {
+                return true;
+            }
+            return false;
+        }
+
         async function scanFeed() {
             if (hasSignal) return;
             if (activeCam.id === 5 || activeCam.id === 6 || activeCam.id === 11 || activeCam.id === 12) {
@@ -692,19 +760,14 @@
             }
             if (activeCam.isAxis || (activeCam.id >= 1 && activeCam.id <= 4)) {
                 try {
-                    const res = await fetch(`/api/camera/axis/${activeCam.id}/feed_status`).catch(() => null);
+                    const res = await fetch(`/api/camera/axis/${activeCam.id}/feed_status?force=true`).catch(() => null);
                     if (res && res.ok) {
                         const data = await res.json();
                         if (data && data.online) {
-                            hasSignal = true;
                             isAxisActive = true;
                             reconnectCountdown = 5;
-                            updateSignalUI();
-                            if (axisImg) {
-                                axisImg.src = `/api/camera/axis/${activeCam.id}/stream?t=` + Date.now();
-                            } else {
-                                startAxisStream(activeCam.id);
-                            }
+                            setSignalState(true);
+                            forceReconnectAxisStream(activeCam.id);
                         }
                     }
                 } catch (_) {}
@@ -715,39 +778,80 @@
                 if (res && res.ok) {
                     const data = await res.json();
                     if (data && data.online) {
-                        hasSignal = true;
                         reconnectCountdown = 5;
-                        updateSignalUI();
+                        setSignalState(true);
                     }
                 }
             } catch (_) {}
         }
 
         setInterval(async () => {
-            // Track liveness check
-            if (isWebcamActive && (!hasLiveTrack() || (webcamStream && webcamStream.getVideoTracks()[0].readyState === 'ended'))) {
-                console.warn('[Webcam Popout] Live track ended in interval check');
-                stopWebcam();
-            }
-
+            // 1. Check if active camera stream has frozen (>5s without new stream frames)
             if (hasSignal) {
-                reconnectCountdown = 5;
-                return;
+                if (activeCam.isAxis || (activeCam.id >= 1 && activeCam.id <= 4)) {
+                    window._lastPopoutAxisCheck = window._lastPopoutAxisCheck || 0;
+                    const now = Date.now();
+                    if (now - window._lastPopoutAxisCheck >= 2500) {
+                        window._lastPopoutAxisCheck = now;
+                        try {
+                            const controller = new AbortController();
+                            const timer = setTimeout(() => controller.abort(), 3000);
+                            const res = await fetch(`/api/camera/axis/${activeCam.id}/feed_status`, { signal: controller.signal }).catch(() => null);
+                            clearTimeout(timer);
+                            if (!res || !res.ok) {
+                                console.warn('[Camera Popout] AXIS status check failed, stream marked frozen/lost');
+                                isAxisActive = false;
+                                setSignalState(false);
+                            } else {
+                                const data = await res.json();
+                                if (!data.online) {
+                                    console.warn('[Camera Popout] AXIS stream FROZEN (>5s no frames). Triggering reset & 5s countdown.');
+                                    isAxisActive = false;
+                                    setSignalState(false);
+                                }
+                            }
+                        } catch (_) {}
+                    }
+                } else if (isWebcamActive && webcamVideo) {
+                    if (!hasLiveTrack() || (webcamStream && webcamStream.getVideoTracks()[0].readyState === 'ended')) {
+                        console.warn('[Camera Popout] Live track ended in interval check');
+                        stopWebcam();
+                        setSignalState(false);
+                    } else if (checkWebcamFrozen()) {
+                        console.warn('[Camera Popout] Webcam stream FROZEN (>5s no frames). Triggering reset & 5s countdown.');
+                        stopWebcam();
+                        setSignalState(false);
+                    }
+                }
             }
 
-            if (reconnectCountdown <= 0) {
-                reconnectCountdown = 5;
-            } else {
-                reconnectCountdown--;
-            }
+            // 2. Countdown decrement and FORCE RECONNECT loop (repeating every 5s until successful)
+            if (!hasSignal) {
+                if (reconnectCountdown <= 0) {
+                    reconnectCountdown = 5;
+                } else {
+                    reconnectCountdown--;
+                }
 
-            if (reconnectEl) {
-                reconnectEl.textContent = `Attempting reconnect in ${reconnectCountdown}s...`;
-            }
+                if (reconnectEl) {
+                    reconnectEl.textContent = `Attempting reconnect in ${reconnectCountdown}s...`;
+                }
 
-            // At 0 actively restart connection attempt
-            if (reconnectCountdown === 0) {
-                await scanFeed();
+                // Each time 5s countdown is complete (reaches 0), app MUST FORCE RECONNECT
+                if (reconnectCountdown === 0) {
+                    console.log(`[Camera Popout] 5s countdown complete for Camera ${activeCam.id} -> FORCING RECONNECT`);
+                    if (activeCam.isAxis || (activeCam.id >= 1 && activeCam.id <= 4)) {
+                        forceReconnectAxisStream(activeCam.id);
+                        scanFeed();
+                    } else if (activeCam.id === 5 || activeCam.id === 6 || activeCam.id === 11 || activeCam.id === 12) {
+                        stopWebcam();
+                        startWebcam();
+                    } else {
+                        scanFeed();
+                    }
+                    // Reset countdown so it repeats every 5s until successful
+                    reconnectCountdown = 5;
+                }
             }
         }, 1000);
 
@@ -756,7 +860,7 @@
             const now = Date.now();
             osdTime.textContent = new Date(now).toISOString();
 
-            if (isAxisActive && axisImg && axisImg.complete && axisImg.naturalWidth > 0) {
+            if (isAxisActive && axisImg && axisImg.naturalWidth > 0) {
                 ctx.drawImage(axisImg, 0, 0, 1280, 720);
 
                 // Top pill badge
@@ -815,39 +919,47 @@
                 return;
             }
 
-            // Authentic Orion Logo Standby Scene: No sim graphics!
-            ctx.fillStyle = '#0a0a0a';
-            ctx.fillRect(0, 0, 1280, 720);
+            // Standby Scene: Only render Orion Logo and NO SIGNAL badge after 5s grace period has elapsed!
+            if (showNoSignalBg) {
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, 1280, 720);
 
-            ctx.strokeStyle = '#181818';
-            ctx.lineWidth = 1;
-            for (let x = 0; x < 1280; x += 40) {
-                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
+                ctx.strokeStyle = '#181818';
+                ctx.lineWidth = 1;
+                for (let x = 0; x < 1280; x += 40) {
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 720); ctx.stroke();
+                }
+                for (let y = 0; y < 720; y += 40) {
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
+                }
+
+                if (orionLogo.complete && orionLogo.naturalWidth > 0) {
+                    ctx.drawImage(orionLogo, 640 - 50, 360 - 90, 100, 100);
+                }
+
+                // Red NO SIGNAL badge box
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
+                ctx.fillRect(640 - 90, 360 + 24, 180, 32);
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+                ctx.lineWidth = 1.2;
+                ctx.strokeRect(640 - 90, 360 + 24, 180, 32);
+
+                ctx.fillStyle = '#ef4444';
+                ctx.font = 'bold 16px monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('NO SIGNAL', 640, 360 + 40);
+
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = 'bold 12px monospace';
+                ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 74);
+            } else if (axisImg && axisImg.complete && axisImg.naturalWidth > 0) {
+                // Within 5s grace period: keep displaying last known frame
+                ctx.drawImage(axisImg, 0, 0, 1280, 720);
+            } else {
+                ctx.fillStyle = '#0a0a0a';
+                ctx.fillRect(0, 0, 1280, 720);
             }
-            for (let y = 0; y < 720; y += 40) {
-                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1280, y); ctx.stroke();
-            }
-
-            if (orionLogo.complete && orionLogo.naturalWidth > 0) {
-                ctx.drawImage(orionLogo, 640 - 50, 360 - 90, 100, 100);
-            }
-
-            // Red NO SIGNAL badge box
-            ctx.fillStyle = 'rgba(239, 68, 68, 0.12)';
-            ctx.fillRect(640 - 90, 360 + 24, 180, 32);
-            ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
-            ctx.lineWidth = 1.2;
-            ctx.strokeRect(640 - 90, 360 + 24, 180, 32);
-
-            ctx.fillStyle = '#ef4444';
-            ctx.font = 'bold 16px monospace';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillText('NO SIGNAL', 640, 360 + 40);
-
-            ctx.fillStyle = '#94a3b8';
-            ctx.font = 'bold 12px monospace';
-            ctx.fillText(`Attempting reconnect in ${reconnectCountdown}s...`, 640, 360 + 74);
 
             requestAnimationFrame(drawFrame);
         }
