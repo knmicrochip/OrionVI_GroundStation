@@ -397,3 +397,4 @@ node run-electron.js --test=e2e
 * **Core Framework**: [NASA Open MCT](https://nasa.github.io/openmct/) (Apache 2.0 License)
 
 </div>
+
